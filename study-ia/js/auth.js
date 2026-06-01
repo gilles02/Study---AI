@@ -1,4 +1,8 @@
-// js/auth.js
+// ═══════════════════════════════════════════════════════════════
+//  js/auth.js — Firebase Phone Authentication pour Study-IA
+//  Flow : Numéro → OTP SMS (6 cases) → Session → /app.html
+// ═══════════════════════════════════════════════════════════════
+
 import { auth, db } from "./firebase-config.js";
 import { 
   RecaptchaVerifier, 
@@ -19,7 +23,7 @@ let countdownTimer = null;
 const MAX_ATTEMPTS = 3;
 const EXPIRE_MINUTES = 5;
 
-// ── ÉLÉMENTS DU DOM (CORRIGÉS POUR MATCH LE HTML) ────────────────────────────
+// ── ÉLÉMENTS DU DOM ──────────────────────────────────────────────────────────
 const stepPhone = document.getElementById('step-phone');
 const stepOtp = document.getElementById('step-otp');
 const phoneInput = document.getElementById('phone-input');
@@ -32,34 +36,84 @@ const verifyOtpBtn = document.getElementById('verify-otp-btn');
 const resendBtn = document.getElementById('resend-btn');
 const phoneDisplay = document.getElementById('phone-display');
 
-// ── 1. INITIALISATION DU RECAPTCHA INVISIBLE ─────────────────────────────────
-function initInvisibleRecaptcha() {
+// ── 1. INITIALISATION DU RECAPTCHA INVISIBLE (CIBLE BIEN LE CONTENEUR HTML) ──
+function initRecaptcha() {
   if (!window.recaptchaVerifier) {
-    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'send-otp-btn', {
+    // CORRECTION : Ciblage de 'recaptcha-container' au lieu de 'send-otp-btn'
+    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
       size: 'invisible',
       callback: () => {
-        // reCAPTCHA résolu automatiquement
+        // reCAPTCHA résolu automatiquement lors du process d'envoi
       },
       'expired-callback': () => {
-        window.recaptchaVerifier.clear();
-        window.recaptchaVerifier = null;
-        initInvisibleRecaptcha();
+        if (window.recaptchaVerifier) {
+          window.recaptchaVerifier.clear();
+          window.recaptchaVerifier = null;
+        }
+        initRecaptcha();
       }
     });
   }
 }
 
-// ── 2. COMPORTEMENT UX DES 6 CASES OTP ───────────────────────────────────────
+// ── 2. ENVOI DU SMS (FONCTION MULTI-RÉUTILISABLE) ────────────────────────────
+async function sendOTP(e) {
+  if (e) e.preventDefault();
+  hideOTPError();
+  
+  const rawValue = phoneInput.value.trim();
+  const cameroonRegex = /^(6|2)\d{8}$/; // Gestion intelligente stricte des 9 chiffres au Cameroun
+
+  if (!cameroonRegex.test(rawValue)) {
+    showToast("Format invalide. Saisissez les 9 chiffres (ex: 699xxxxxx).", "error");
+    return;
+  }
+
+  currentPhoneNumber = "+237" + rawValue;
+  sendOtpBtn.disabled = true;
+  sendOtpBtn.textContent = "Envoi en cours…";
+  
+  try {
+    initRecaptcha();
+    const appVerifier = window.recaptchaVerifier;
+    
+    confirmationResult = await signInWithPhoneNumber(auth, currentPhoneNumber, appVerifier);
+    
+    // Passage fluide à l'étape du code OTP
+    stepPhone.style.display = "none";
+    stepOtp.style.display = "block";
+    if (phoneDisplay) phoneDisplay.textContent = currentPhoneNumber;
+    
+    // Focus automatique immédiat sur la première case
+    if (otpBoxes[0]) otpBoxes[0].focus();
+    
+    loginAttempts = 0;
+    startTimer();
+    showToast("Code envoyé par SMS !", "success");
+    
+  } catch (error) {
+    console.error("Erreur d'envoi SMS :", error);
+    if (window.recaptchaVerifier) {
+      window.recaptchaVerifier.clear();
+      window.recaptchaVerifier = null;
+    }
+    sendOtpBtn.disabled = false;
+    sendOtpBtn.textContent = "Recevoir le code par SMS";
+    showToast("Impossible d'envoyer le SMS. Réessayez plus tard.", "error");
+  }
+}
+
+// ── 3. COMPORTEMENT UX DES 6 CASES OTP ───────────────────────────────────────
 otpBoxes.forEach((box, index) => {
   box.addEventListener('input', (e) => {
     const value = e.target.value;
-    e.target.value = value.replace(/[^0-9]/g, ''); // Uniquement des chiffres
+    e.target.value = value.replace(/[^0-9]/g, ''); // Uniquement des caractères numériques
     
     if (box.value !== "" && index < otpBoxes.length - 1) {
-      otpBoxes[index + 1].focus(); // Case suivante
+      otpBoxes[index + 1].focus(); // Passe à la case suivante
     }
 
-    // Si la dernière case est remplie, on tente la validation automatique
+    // Si la 6ème case est saisie, déclenchement immédiat de la validation
     const code = getOtpCode();
     if (code.length === 6) {
       validateOTP(code);
@@ -68,7 +122,7 @@ otpBoxes.forEach((box, index) => {
 
   box.addEventListener('keydown', (e) => {
     if (e.key === "Backspace" && box.value === "" && index > 0) {
-      otpBoxes[index - 1].focus(); // Case précédente
+      otpBoxes[index - 1].focus(); // Retour à la case précédente
     }
   });
 });
@@ -79,79 +133,32 @@ function getOtpCode() {
   return code;
 }
 
-// ── 3. GESTION DU MINUTEUR DE 5 MINUTES ──────────────────────────────────────
+// ── 4. GESTION DU MINUTEUR DE COMPTE À REBOURS ───────────────────────────────
 function startTimer() {
   clearInterval(countdownTimer);
   let timeRemaining = EXPIRE_MINUTES * 60;
   
-  otpTimer.style.display = "block";
-  resendBtn.style.display = "none";
+  if (otpTimer) otpTimer.style.display = "block";
+  if (resendBtn) resendBtn.style.display = "none";
 
   countdownTimer = setInterval(() => {
     timeRemaining--;
     
     const minutes = String(Math.floor(timeRemaining / 60)).padStart(2, '0');
     const seconds = String(timeRemaining % 60).padStart(2, '0');
-    otpTimer.textContent = `Expire dans ${minutes}:${seconds}`;
+    if (otpTimer) otpTimer.textContent = `Expire dans ${minutes}:${seconds}`;
 
     if (timeRemaining <= 0) {
       clearInterval(countdownTimer);
-      otpTimer.textContent = "Code expiré";
-      resendBtn.style.display = "inline-block";
+      if (otpTimer) otpTimer.textContent = "Code expiré";
+      if (resendBtn) resendBtn.style.display = "inline-block";
       showOTPError("Le code a expiré. Veuillez demander un nouveau code.");
       blockOTPInputs(true);
     }
   }, 1000);
 }
 
-// ── 4. ENVOI DU SMS (CLIC SUR BOUTON ÉTAPE 1) ────────────────────────────────
-if (sendOtpBtn) {
-  sendOtpBtn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    hideOTPError();
-    
-    const rawValue = phoneInput.value.trim();
-    const cameroonRegex = /^(6|2)\d{8}$/;
-
-    if (!cameroonRegex.test(rawValue)) {
-      showToast("Format invalide. Saisissez les 9 chiffres (ex: 699xxxxxx).", "error");
-      return;
-    }
-
-    currentPhoneNumber = "+237" + rawValue;
-    sendOtpBtn.disabled = true;
-    sendOtpBtn.textContent = "Envoi en cours…";
-    
-    try {
-      initInvisibleRecaptcha();
-      const appVerifier = window.recaptchaVerifier;
-      
-      confirmationResult = await signInWithPhoneNumber(auth, currentPhoneNumber, appVerifier);
-      
-      // Passage à l'étape 2
-      stepPhone.style.display = "none";
-      stepOtp.style.display = "block";
-      if (phoneDisplay) phoneDisplay.textContent = currentPhoneNumber;
-      
-      otpBoxes[0].focus();
-      loginAttempts = 0;
-      startTimer();
-      showToast("Code envoyé par SMS !", "success");
-      
-    } catch (error) {
-      console.error("Erreur d'envoi SMS :", error);
-      if (window.recaptchaVerifier) {
-        window.recaptchaVerifier.clear();
-        window.recaptchaVerifier = null;
-      }
-      sendOtpBtn.disabled = false;
-      sendOtpBtn.textContent = "Recevoir le code par SMS";
-      showToast("Impossible d'envoyer le SMS. Réessayez plus tard.", "error");
-    }
-  });
-}
-
-// ── 5. VALIDATION DU CODE OTP ────────────────────────────────────────────────
+// ── 5. VALIDATION DU CODE OTP AUPRÈS DE FIREBASE ─────────────────────────────
 async function validateOTP(smsCode) {
   if (smsCode.length !== 6) {
     showOTPError("Veuillez entrer le code complet à 6 chiffres.");
@@ -165,7 +172,7 @@ async function validateOTP(smsCode) {
     const result = await confirmationResult.confirm(smsCode);
     const user = result.user;
 
-    // Sauvegarde ou mise à jour dans Firestore
+    // Sauvegarde transparente du profil dans Firestore
     await saveUserToFirestore(user);
     
     clearInterval(countdownTimer);
@@ -179,42 +186,49 @@ async function validateOTP(smsCode) {
     showLoading(false);
     loginAttempts++;
     
-    // Vider les cases pour la nouvelle tentative
+    // Remise à zéro des cases pour faciliter une nouvelle saisie
     otpBoxes.forEach(box => box.value = "");
-    otpBoxes[0].focus();
+    if (otpBoxes[0]) otpBoxes[0].focus();
 
     if (loginAttempts >= MAX_ATTEMPTS) {
       clearInterval(countdownTimer);
       showOTPError("Trop de tentatives infructueuses. Cliquez sur 'Renvoyer le code'.");
       blockOTPInputs(true);
-      resendBtn.style.display = "inline-block";
+      if (resendBtn) resendBtn.style.display = "inline-block";
     } else {
       showOTPError(`Code incorrect. Il vous reste ${MAX_ATTEMPTS - loginAttempts} essai(s).`);
     }
   }
 }
 
-// Liaison avec le bouton de secours Étape 2
+// ── 6. LIAISON DES ÉVÉNEMENTS SUR LES BOUTONS ────────────────────────────────
+
+// Clic Étape 1 : Envoi du numéro
+if (sendOtpBtn) {
+  sendOtpBtn.addEventListener('click', sendOTP);
+}
+
+// Clic Étape 2 : Validation manuelle via le bouton alternatif
 if (verifyOtpBtn) {
   verifyOtpBtn.addEventListener('click', () => {
     validateOTP(getOtpCode());
   });
 }
 
-// ── 6. BOUTON RENVOYER LE CODE ───────────────────────────────────────────────
+// Clic Étape 2 : Demande de renvoi de SMS en cas d'expiration/blocage
 if (resendBtn) {
   resendBtn.addEventListener('click', async () => {
     hideOTPError();
     blockOTPInputs(false);
     
     try {
-      initInvisibleRecaptcha();
+      initRecaptcha();
       const appVerifier = window.recaptchaVerifier;
       
       confirmationResult = await signInWithPhoneNumber(auth, currentPhoneNumber, appVerifier);
       
       otpBoxes.forEach(box => box.value = "");
-      otpBoxes[0].focus();
+      if (otpBoxes[0]) otpBoxes[0].focus();
       loginAttempts = 0;
       startTimer();
       showToast("Nouveau code envoyé !", "success");
@@ -224,13 +238,14 @@ if (resendBtn) {
   });
 }
 
-// ── 7. FONCTIONS HELPERS SÉCURISÉES ──────────────────────────────────────────
+// ── 7. FONCTIONS FONCTIONNELLES ET COMPOSANTS HELPERS ────────────────────────
 async function saveUserToFirestore(user) {
   try {
     const userRef = doc(db, "users", user.uid);
     const snap = await getDoc(userRef);
 
     if (!snap.exists()) {
+      // Configuration initiale pour les nouveaux comptes d'étudiants
       await setDoc(userRef, {
         uid: user.uid,
         phone: user.phoneNumber,
@@ -240,6 +255,7 @@ async function saveUserToFirestore(user) {
         generationCount: 0
       });
     } else {
+      // Simple mise à jour de traçabilité pour les utilisateurs existants
       await setDoc(userRef, { lastLoginAt: serverTimestamp() }, { merge: true });
     }
   } catch (e) {
