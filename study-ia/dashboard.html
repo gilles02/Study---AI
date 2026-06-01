@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Study-IA — Tableau de bord</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    body { padding-top: 60px; }
+
+    /* ── Header ── */
+    .dash-header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 32px 0 28px;
+    }
+
+    .dash-header-inner {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+
+    .dash-greeting {
+      font-family: var(--font-display);
+      font-size: clamp(1.4rem, 3vw, 2rem);
+      font-weight: 700;
+    }
+
+    /* ── Stats row ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin: 32px 0;
+    }
+
+    .stat-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+    }
+
+    .stat-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      font-weight: 900;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    .stat-sub {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── Content grid ── */
+    .dash-grid {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 24px;
+      padding-bottom: 60px;
+    }
+
+    /* ── History table ── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .section-title { font-size: 1rem; font-weight: 600; }
+
+    .history-table {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .table-head {
+      display: grid;
+      grid-template-columns: 1fr 120px 90px 60px;
+      padding: 12px 20px;
+      background: var(--ink-soft);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .th {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .table-row {
+      display: grid;
+      grid-template-columns: 1fr 120px 90px 60px;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+      transition: background var(--transition);
+    }
+
+    .table-row:last-child { border-bottom: none; }
+    .table-row:hover { background: rgba(255,255,255,0.02); }
+
+    .table-row-topic {
+      font-size: 0.88rem;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding-right: 16px;
+    }
+
+    .table-row-type { font-size: 0.8rem; color: var(--text-soft); }
+    .table-row-date { font-size: 0.78rem; color: var(--text-muted); }
+
+    /* ── Profile panel ── */
+    .profile-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .profile-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 24px;
+    }
+
+    .profile-avatar {
+      width: 48px; height: 48px;
+      background: rgba(232,201,109,0.15);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--gold);
+      margin-bottom: 12px;
+    }
+
+    .profile-name { font-weight: 600; margin-bottom: 2px; }
+    .profile-email { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 16px; }
+
+    .plan-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      background: var(--ink-soft);
+      border-radius: var(--radius-sm);
+      margin-bottom: 8px;
+    }
+
+    .plan-name { font-size: 0.85rem; font-weight: 600; }
+    .plan-credits { font-size: 0.78rem; color: var(--text-muted); }
+
+    @media (max-width: 900px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .dash-grid  { grid-template-columns: 1fr; }
+      .table-head, .table-row { grid-template-columns: 1fr 90px; }
+      .th:nth-child(n+3), .table-row > *:nth-child(n+3) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <a href="index.html" class="nav-logo">Study<span>-IA</span></a>
+    <ul class="nav-links">
+      <li><a href="app.html">Générer</a></li>
+      <li><a href="dashboard.html">Tableau de bord</a></li>
+    </ul>
+    <button class="btn btn-ghost btn-sm" data-logout>Déconnexion</button>
+  </nav>
+
+  <!-- ── Header ── -->
+  <div class="dash-header">
+    <div class="container">
+      <div class="dash-header-inner">
+        <div>
+          <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:4px">Tableau de bord</p>
+          <h1 class="dash-greeting">Bonjour, <span id="user-name" style="color:var(--gold)"></span> 👋</h1>
+        </div>
+        <a href="app.html" class="btn btn-primary">+ Nouvelle génération</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Stats ── -->
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat-card fade-up">
+        <div class="stat-label">Générations totales</div>
+        <div class="stat-value" id="stat-total">0</div>
+        <div class="stat-sub">Depuis le début</div>
+      </div>
+      <div class="stat-card fade-up delay-1">
+        <div class="stat-label">Ce mois-ci</div>
+        <div class="stat-value" id="stat-month">0</div>
+        <div class="stat-sub">Générations en juin</div>
+      </div>
+      <div class="stat-card fade-up delay-2">
+        <div class="stat-label">Crédits restants</div>
+        <div class="stat-value" id="stat-credits" style="color:var(--gold)">0</div>
+        <div class="stat-sub">Sur votre plan</div>
+      </div>
+      <div class="stat-card fade-up delay-3">
+        <div class="stat-label">Sujet favori</div>
+        <div class="stat-value" style="font-size:1.2rem;line-height:1.3" id="stat-fav">—</div>
+        <div class="stat-sub">Le plus généré</div>
+      </div>
+    </div>
+
+    <!-- ── Main content ── -->
+    <div class="dash-grid">
+
+      <!-- History -->
+      <div>
+        <div class="section-header">
+          <span class="section-title">Historique des générations</span>
+          <button class="btn btn-ghost btn-sm" id="clear-history-btn">Effacer tout</button>
+        </div>
+
+        <div class="history-table" id="history-table">
+          <div class="table-head">
+            <div class="th">Sujet</div>
+            <div class="th">Type</div>
+            <div class="th">Date</div>
+            <div class="th">Action</div>
+          </div>
+          <div id="history-rows">
+            <div style="padding:40px;text-align:center;color:var(--text-muted);font-size:0.88rem">
+              Aucune génération pour l'instant.<br />
+              <a href="app.html" style="color:var(--gold);margin-top:8px;display:inline-block">Commencer →</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Profile panel -->
+      <div class="profile-panel">
+
+        <div class="profile-card">
+          <div class="profile-avatar" id="profile-initial">?</div>
+          <div class="profile-name" id="profile-name">—</div>
+          <div class="profile-email" id="profile-email">—</div>
+
+          <div class="plan-indicator">
+            <div>
+              <div class="plan-name" id="plan-name">Plan gratuit</div>
+              <div class="plan-credits" id="plan-credits">5 crédits restants</div>
+            </div>
+            <span class="badge badge-gold" id="plan-badge">FREE</span>
+          </div>
+
+          <div class="progress" style="margin-bottom:8px">
+            <div class="progress-fill" id="credits-bar" style="width:100%"></div>
+          </div>
+
+          <a href="payment.html" class="btn btn-primary btn-full btn-sm" style="margin-top:8px">
+            ✦ Mettre à niveau
+          </a>
+        </div>
+
+        <div class="profile-card">
+          <div class="section-title" style="margin-bottom:12px">Actions rapides</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <a href="app.html" class="btn btn-ghost btn-sm btn-full">📄 Nouvelle fiche</a>
+            <a href="app.html?type=quiz" class="btn btn-ghost btn-sm btn-full">❓ Créer un quiz</a>
+            <a href="payment.html" class="btn btn-ghost btn-sm btn-full">💳 Gérer l'abonnement</a>
+            <button class="btn btn-danger btn-sm btn-full" data-logout>Déconnexion</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+<script src="js/main.js"></script>
+<script type="module" src="js/auth.js"></script>
+  <script>
+    const user = requireAuth();
+
+    const typeLabels = { fiche:'Fiche', quiz:'Quiz', resume:'Résumé', mindmap:'Plan' };
+
+    function initDashboard() {
+      // User info
+      document.getElementById('user-name').textContent      = user.name;
+      document.getElementById('profile-name').textContent   = user.name;
+      document.getElementById('profile-email').textContent  = user.email;
+      document.getElementById('profile-initial').textContent = user.name.charAt(0).toUpperCase();
+      document.getElementById('stat-credits').textContent   = user.credits ?? 0;
+      document.getElementById('plan-credits').textContent   = `${user.credits ?? 0} crédits restants`;
+      document.getElementById('plan-badge').textContent     = (user.plan || 'free').toUpperCase();
+
+      const planNames = { free:'Plan Gratuit', standard:'Plan Standard', pro:'Plan Pro' };
+      document.getElementById('plan-name').textContent = planNames[user.plan] || 'Plan Gratuit';
+
+      // Credits bar
+      const max = { free: 5, standard: 50, pro: 999 };
+      const pct = Math.round(((user.credits ?? 0) / (max[user.plan] || 5)) * 100);
+      document.getElementById('credits-bar').style.width = pct + '%';
+
+      // History
+      const history = Storage.get('studyia_history') || [];
+      document.getElementById('stat-total').textContent = history.length;
+
+      const thisMonth = history.filter((h) => {
+        return new Date(h.createdAt).getMonth() === new Date().getMonth();
+      }).length;
+      document.getElementById('stat-month').textContent = thisMonth;
+
+      // Fav subject
+      if (history.length) {
+        const freq = {};
+        history.forEach((h) => { freq[h.topic] = (freq[h.topic] || 0) + 1; });
+        const fav = Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0];
+        const favEl = document.getElementById('stat-fav');
+        if (fav && favEl) favEl.textContent = fav.slice(0, 20);
+      }
+
+      // History rows
+      const rowsEl = document.getElementById('history-rows');
+      if (history.length && rowsEl) {
+        rowsEl.innerHTML = history.slice(0, 20).map((item) => `
+          <div class="table-row">
+            <div class="table-row-topic">${item.topic}</div>
+            <div class="table-row-type"><span class="badge badge-muted">${typeLabels[item.type] || item.type}</span></div>
+            <div class="table-row-date">${new Date(item.createdAt).toLocaleDateString('fr-FR')}</div>
+            <div><a href="app.html" class="btn btn-ghost btn-sm" style="padding:4px 8px">→</a></div>
+          </div>
+        `).join('');
+      }
+    }
+
+    document.getElementById('clear-history-btn')?.addEventListener('click', () => {
+      if (confirm('Effacer tout l\'historique ?')) {
+        Storage.remove('studyia_history');
+        location.reload();
+      }
+    });
+
+    initDashboard();
+  </script>
+</body>
+</html>

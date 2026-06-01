@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Study-IA — Générer du contenu</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    body { display: grid; grid-template-rows: 60px 1fr; min-height: 100vh; }
+
+    /* ── Top bar ── */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 28px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 50;
+    }
+
+    .topbar-logo { font-family: var(--font-display); font-weight: 900; font-size: 1.2rem; }
+    .topbar-logo span { color: var(--gold); }
+
+    .topbar-right { display: flex; align-items: center; gap: 16px; }
+
+    .credits-chip {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 12px;
+      background: rgba(232,201,109,0.08);
+      border: 1px solid rgba(232,201,109,0.2);
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--gold);
+    }
+
+    /* ── Layout ── */
+    .app-layout {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      height: calc(100vh - 60px);
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .sidebar-title {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    /* Type buttons */
+    .type-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .type-btn {
+      background: var(--ink-soft);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 10px;
+      cursor: pointer;
+      text-align: center;
+      transition: all var(--transition);
+      color: var(--text-soft);
+      font-size: 0.82rem;
+      font-family: var(--font-body);
+    }
+
+    .type-btn .type-icon { font-size: 1.2rem; display: block; margin-bottom: 4px; }
+    .type-btn:hover { border-color: rgba(232,201,109,0.3); color: var(--text); }
+    .type-btn.active { background: rgba(232,201,109,0.1); border-color: var(--gold); color: var(--gold); }
+
+    /* Level select */
+    select { width: 100%; }
+
+    /* History list */
+    .history-list { display: flex; flex-direction: column; gap: 6px; }
+
+    .history-item {
+      background: var(--ink-soft);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: border-color var(--transition);
+    }
+
+    .history-item:hover { border-color: rgba(232,201,109,0.25); }
+
+    .history-item-topic {
+      font-size: 0.85rem;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .history-item-meta {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* ── Main area ── */
+    .main-area {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .main-header {
+      padding: 24px 32px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .main-header h1 {
+      font-size: 1.4rem;
+      margin-bottom: 4px;
+    }
+
+    .input-area {
+      padding: 24px 32px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .topic-row {
+      display: flex; gap: 12px; align-items: flex-end;
+    }
+
+    .topic-row .form-group { flex: 1; margin-bottom: 0; }
+
+    /* ── Output ── */
+    .output-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px;
+    }
+
+    .output-placeholder {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      gap: 12px;
+      text-align: center;
+    }
+
+    .output-placeholder-icon { font-size: 3rem; opacity: 0.4; }
+
+    .output-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    #generator-output {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 28px;
+      line-height: 1.75;
+      font-size: 0.95rem;
+      min-height: 200px;
+    }
+
+    #generator-output h2, #generator-output h3, #generator-output h4 {
+      font-family: var(--font-display);
+      color: var(--text);
+      margin: 16px 0 8px;
+    }
+
+    #generator-output ul { padding-left: 20px; margin: 8px 0; }
+    #generator-output li { margin-bottom: 4px; color: var(--text-soft); }
+    #generator-output strong { color: var(--gold); }
+
+    @media (max-width: 900px) {
+      .app-layout { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Top bar ── -->
+  <div class="topbar">
+    <a href="index.html" class="topbar-logo">Study<span>-IA</span></a>
+    <div class="topbar-right">
+      <div class="credits-chip">⚡ <span id="user-credits">0</span> crédits</div>
+      <a href="dashboard.html" class="btn btn-ghost btn-sm">Tableau de bord</a>
+      <button class="btn btn-ghost btn-sm" data-logout>Déconnexion</button>
+    </div>
+  </div>
+
+  <!-- ── App layout ── -->
+  <div class="app-layout">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+
+      <!-- Type -->
+      <div>
+        <div class="sidebar-title">Type de contenu</div>
+        <div class="type-grid">
+          <button class="type-btn active" data-type="fiche">
+            <span class="type-icon">📄</span>Fiche
+          </button>
+          <button class="type-btn" data-type="quiz">
+            <span class="type-icon">❓</span>Quiz
+          </button>
+          <button class="type-btn" data-type="resume">
+            <span class="type-icon">⚡</span>Résumé
+          </button>
+          <button class="type-btn" data-type="mindmap">
+            <span class="type-icon">🗺️</span>Plan
+          </button>
+        </div>
+      </div>
+
+      <!-- Level -->
+      <div>
+        <div class="sidebar-title">Niveau scolaire</div>
+        <select id="level-select" name="level">
+          <option value="lycee">Lycée (Terminale)</option>
+          <option value="licence">Licence</option>
+          <option value="master">Master / Grande école</option>
+          <option value="professionnel">Formation pro</option>
+        </select>
+      </div>
+
+      <!-- History -->
+      <div style="flex:1;min-height:0">
+        <div class="sidebar-title">Historique récent</div>
+        <div class="history-list" id="history-list">
+          <p style="font-size:0.82rem;color:var(--text-muted)">Aucune génération pour l'instant.</p>
+        </div>
+      </div>
+
+      <a href="payment.html" class="btn btn-primary btn-sm btn-full">✦ Passer Pro</a>
+    </aside>
+
+    <!-- Main area -->
+    <main class="main-area">
+      <div class="main-header">
+        <h1>Générer du contenu</h1>
+        <p style="font-size:0.88rem">Bonjour <strong id="user-name" style="color:var(--text)"></strong> 👋</p>
+      </div>
+
+      <div class="input-area">
+        <form id="generator-form">
+          <input type="hidden" id="type-input" name="type" value="fiche" />
+          <input type="hidden" id="level-input" name="level" value="lycee" />
+
+          <div class="topic-row">
+            <div class="form-group">
+              <label for="topic-input">Sujet à réviser</label>
+              <input
+                type="text"
+                id="topic-input"
+                name="topic"
+                placeholder="Ex: La photosynthèse, La Révolution française, Les algorithmes de tri…"
+              />
+            </div>
+            <button type="submit" class="btn btn-primary">Générer</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="output-area">
+
+        <!-- Toolbar (hidden until content) -->
+        <div class="output-toolbar" id="output-toolbar" style="display:none">
+          <span class="badge badge-gold" id="output-badge">Fiche de révision</span>
+          <button class="btn btn-ghost btn-sm" id="copy-btn">📋 Copier</button>
+        </div>
+
+        <!-- Output -->
+        <div id="generator-output">
+          <div class="output-placeholder">
+            <div class="output-placeholder-icon">✦</div>
+            <p>Choisissez un type de contenu et entrez votre sujet pour commencer.</p>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+  </div>
+
+<script src="js/main.js"></script>
+<script type="module" src="js/auth.js"></script>
+<script type="module" src="js/generator.js"></script>
+  <script>
+    // Require auth
+    requireAuth();
+
+    // Type buttons
+    const typeInput   = document.getElementById('type-input');
+    const levelInput  = document.getElementById('level-input');
+    const levelSelect = document.getElementById('level-select');
+    const outputBadge = document.getElementById('output-badge');
+    const outputToolbar = document.getElementById('output-toolbar');
+
+    const typeLabels = { fiche:'Fiche de révision', quiz:'Quiz interactif', resume:'Résumé rapide', mindmap:'Plan structuré' };
+
+    document.querySelectorAll('.type-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.type-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        typeInput.value = btn.dataset.type;
+        if (outputBadge) outputBadge.textContent = typeLabels[btn.dataset.type] || '';
+      });
+    });
+
+    levelSelect?.addEventListener('change', () => { levelInput.value = levelSelect.value; });
+
+    // Show toolbar after generation
+    const origForm = document.getElementById('generator-form');
+    origForm?.addEventListener('submit', () => {
+      setTimeout(() => {
+        const out = document.getElementById('generator-output');
+        if (out && out.children.length && !out.querySelector('.output-placeholder')) {
+          if (outputToolbar) outputToolbar.style.display = 'flex';
+        }
+      }, 3000);
+    });
+
+    // Populate history
+    function renderHistory() {
+      const list = document.getElementById('history-list');
+      if (!list) return;
+      const history = Storage.get('studyia_history') || [];
+      if (!history.length) return;
+      list.innerHTML = history.slice(0, 8).map((item) => `
+        <div class="history-item">
+          <div class="history-item-topic">${item.topic}</div>
+          <div class="history-item-meta">${typeLabels[item.type] || item.type} · ${new Date(item.createdAt).toLocaleDateString('fr-FR')}</div>
+        </div>
+      `).join('');
+    }
+
+    renderHistory();
+  </script>
+</body>
+</html>

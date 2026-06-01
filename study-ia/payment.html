@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Study-IA — Choisir un plan</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    body { padding-top: 80px; min-height: 100vh; }
+
+    .payment-layout {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 40px;
+      padding: 48px 0 80px;
+      align-items: start;
+    }
+
+    /* ── Plan cards ── */
+    .plan-card {
+      background: var(--panel);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      cursor: pointer;
+      transition: all var(--transition);
+      margin-bottom: 16px;
+    }
+
+    .plan-card:hover { border-color: rgba(232,201,109,0.35); }
+
+    .plan-card.plan-selected {
+      border-color: var(--gold);
+      background: rgba(232,201,109,0.05);
+    }
+
+    .plan-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+
+    .plan-title { font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; }
+
+    .plan-price-block { text-align: right; }
+    .plan-price { font-family: var(--font-display); font-size: 1.6rem; font-weight: 900; color: var(--text); }
+    .plan-price-sub { font-size: 0.72rem; color: var(--text-muted); }
+
+    .plan-features {
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .plan-features li {
+      font-size: 0.78rem;
+      color: var(--text-soft);
+      background: var(--ink-soft);
+      padding: 3px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+    }
+
+    .plan-radio { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .plan-radio-dot {
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-radius: 50%;
+      transition: all var(--transition);
+    }
+    .plan-selected .plan-radio-dot {
+      border-color: var(--gold);
+      background: var(--gold);
+    }
+
+    /* ── Payment form ── */
+    .payment-box {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      position: sticky;
+      top: 96px;
+    }
+
+    .payment-box h3 {
+      font-size: 1.1rem;
+      margin-bottom: 6px;
+    }
+
+    .order-summary {
+      background: var(--ink-soft);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+      margin: 20px 0;
+    }
+
+    .order-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.88rem;
+      color: var(--text-soft);
+      padding: 4px 0;
+    }
+
+    .order-row.total {
+      font-weight: 600;
+      color: var(--text);
+      font-size: 1rem;
+      padding-top: 10px;
+      margin-top: 6px;
+      border-top: 1px solid var(--border);
+    }
+
+    .card-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .secure-note {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 12px;
+      justify-content: center;
+    }
+
+    @media (max-width: 768px) {
+      .payment-layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <a href="index.html" class="nav-logo">Study<span>-IA</span></a>
+    <ul class="nav-links">
+      <li><a href="app.html">Application</a></li>
+    </ul>
+    <button class="btn btn-ghost btn-sm" data-logout>Déconnexion</button>
+  </nav>
+
+  <div class="container">
+    <div class="payment-layout">
+
+      <!-- Left: Plan selection -->
+      <div>
+        <h2 style="margin-bottom:8px">Choisir votre plan</h2>
+        <p style="margin-bottom:32px">Aucun engagement, résiliable à tout moment.</p>
+
+        <!-- Free -->
+        <div class="plan-card" data-plan="free">
+          <div class="plan-radio"><div class="plan-radio-dot"></div><span style="font-size:0.82rem;color:var(--text-muted)">Sélectionner</span></div>
+          <div class="plan-header">
+            <div class="plan-title">Gratuit <span class="badge badge-muted" style="margin-left:8px;font-size:0.65rem">Actuel</span></div>
+            <div class="plan-price-block">
+              <div class="plan-price">0€</div>
+              <div class="plan-price-sub">/ mois</div>
+            </div>
+          </div>
+          <ul class="plan-features">
+            <li>5 générations / mois</li>
+            <li>Fiches &amp; résumés</li>
+          </ul>
+        </div>
+
+        <!-- Standard -->
+        <div class="plan-card plan-selected" data-plan="standard">
+          <div class="plan-radio"><div class="plan-radio-dot"></div><span style="font-size:0.82rem;color:var(--text-muted)">Sélectionner</span></div>
+          <div class="plan-header">
+            <div class="plan-title">Standard <span class="badge badge-gold" style="margin-left:8px;font-size:0.65rem">Populaire</span></div>
+            <div class="plan-price-block">
+              <div class="plan-price">7,99€</div>
+              <div class="plan-price-sub">/ mois</div>
+            </div>
+          </div>
+          <ul class="plan-features">
+            <li>50 générations / mois</li>
+            <li>Tous les types</li>
+            <li>Historique 30 jours</li>
+            <li>Support email</li>
+          </ul>
+        </div>
+
+        <!-- Pro -->
+        <div class="plan-card" data-plan="pro">
+          <div class="plan-radio"><div class="plan-radio-dot"></div><span style="font-size:0.82rem;color:var(--text-muted)">Sélectionner</span></div>
+          <div class="plan-header">
+            <div class="plan-title">Pro</div>
+            <div class="plan-price-block">
+              <div class="plan-price">14,99€</div>
+              <div class="plan-price-sub">/ mois</div>
+            </div>
+          </div>
+          <ul class="plan-features">
+            <li>Illimité</li>
+            <li>Tous les types</li>
+            <li>Historique complet</li>
+            <li>Support prioritaire</li>
+            <li>Accès API</li>
+          </ul>
+        </div>
+
+      </div>
+
+      <!-- Right: Checkout -->
+      <div class="payment-box">
+        <h3>Récapitulatif</h3>
+        <p style="font-size:0.82rem;color:var(--text-muted)">Plan sélectionné</p>
+
+        <div class="order-summary">
+          <div class="order-row">
+            <span id="summary-plan-name">Standard</span>
+            <span>7,99€ / mois</span>
+          </div>
+          <div class="order-row total">
+            <span>Total</span>
+            <span id="summary-price">7,99€ / mois</span>
+          </div>
+        </div>
+
+        <!-- Free CTA -->
+        <div id="free-cta" style="display:none">
+          <p style="font-size:0.88rem;color:var(--text-soft);margin-bottom:16px">
+            Le plan gratuit inclut 5 générations par mois sans carte bancaire.
+          </p>
+          <button id="free-plan-btn" class="btn btn-outline btn-full">Continuer avec le plan gratuit</button>
+        </div>
+
+        <!-- Payment form -->
+        <div id="payment-form-section">
+          <form id="payment-form">
+            <div class="form-group">
+              <label for="card-name">Titulaire de la carte</label>
+              <input type="text" id="card-name" name="card-name" placeholder="Jean Dupont" required />
+            </div>
+            <div class="form-group">
+              <label for="card-number">Numéro de carte</label>
+              <input type="text" id="card-number" name="card-number" placeholder="1234 5678 9012 3456" maxlength="19" required />
+            </div>
+            <div class="card-row">
+              <div class="form-group">
+                <label for="expiry">Expiration</label>
+                <input type="text" id="expiry" name="expiry" placeholder="MM/AA" maxlength="5" required />
+              </div>
+              <div class="form-group">
+                <label for="cvv">CVV</label>
+                <input type="text" id="cvv" name="cvv" placeholder="123" maxlength="4" required />
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full btn-lg" style="margin-top:4px">
+              Confirmer le paiement
+            </button>
+          </form>
+
+          <div class="secure-note">
+            🔒 Paiement sécurisé · Simulation uniquement
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+<script src="js/main.js"></script>
+<script type="module" src="js/auth.js"></script>
+<script type="module" src="js/payment.js"></script>
+</body>
+</html>
