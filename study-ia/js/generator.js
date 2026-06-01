@@ -57,24 +57,23 @@ async function generateContent(topic, type = 'fiche', level = 'lycee') {
 
   const systemPrompt = `Tu es Study-IA, un assistant pédagogique expert. Tu génères du contenu de révision clair, précis et adapté au niveau ${levelLabels[level] || 'lycée'}. Tes réponses sont en français, structurées et directement exploitables par l'étudiant.`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model:      'claude-sonnet-4-20250514',
-      max_tokens: 1000,
-      system:     systemPrompt,
-      messages:   [{ role: 'user', content: typeConfig.prompt(topic) }],
-    }),
-  });
+const response = await fetch("/api/generate", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prompt: topic,   // le sujet saisi par l'utilisateur
+    type:   type,    // "fiche", "quiz", "resume" ou "mindmap"
+    level:  level,   // "lycee", "licence", etc.
+  }),
+});
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.error?.message || 'Erreur API Anthropic.');
   }
 
-  const data   = await response.json();
-  const result = data.content?.map((b) => b.text || '').join('\n').trim();
+ const data = await response.json();
+const texte = data.result; // le texte généré par Gemini
 
   // Deduct 1 credit & save to history
   decrementCredit(user);
