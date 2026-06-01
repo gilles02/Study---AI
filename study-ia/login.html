@@ -168,21 +168,19 @@
     /* ═══════════════════════════════════════════════
        ÉTAPE 1 — SAISIE DU NUMÉRO
     ═══════════════════════════════════════════════ */
-
-    .login-card h1 {
+    .form-title {
       font-family  : 'Playfair Display', serif;
-      font-size    : 32px;
+      font-size    : 26px;
       font-weight  : 700;
       margin-bottom: 8px;
-      color        : var(--gold);
-      text-align   : center;
+      color        : var(--text-main);
     }
 
-    .login-card p {
-      font-size    : 15px;
+    .form-subtitle {
+      font-size    : 14px;
       color        : var(--text-sub);
       margin-bottom: 36px;
-      text-align   : center;
+      line-height  : 1.55;
     }
 
     .input-group {
@@ -216,12 +214,10 @@
 
     .phone-flag {
       padding   : 0 14px;
-      font-size : 16px;
+      font-size : 20px;
       border-right: 1px solid var(--border);
       user-select: none;
       line-height: 52px;
-      color       : var(--text-main);
-      font-weight : 500;
     }
 
     #phone-input {
@@ -231,18 +227,18 @@
       outline   : none;
       padding   : 0 16px;
       height    : 52px;
-      font-size : 16px;
+      font-size : 15px;
       font-family: 'DM Sans', sans-serif;
       color     : var(--text-main);
-      letter-spacing: 0.05em;
+      letter-spacing: 0.04em;
     }
 
     #phone-input::placeholder { color: var(--text-muted); }
 
     .input-hint {
       font-size : 12px;
-      color     : var(--text-sub);
-      margin-top: 8px;
+      color     : var(--text-muted);
+      margin-top: 6px;
     }
 
     /* ═══════════════════════════════════════════════
@@ -519,10 +515,13 @@
 
 <body>
 
+  <!-- ═══ CONTENEUR TOAST ═══════════════════════════════════ -->
   <div id="toast-container"></div>
 
+  <!-- ═══ DOUBLE PANNEAU ══════════════════════════════════════ -->
   <div class="login-wrapper">
 
+    <!-- ── Panneau gauche : branding ────────────────────────── -->
     <div class="panel-brand">
       <div class="brand-logo">
         <div class="logo-mark">Study·IA</div>
@@ -546,38 +545,45 @@
       </ul>
     </div>
 
+    <!-- ── Panneau droit : formulaire ────────────────────────── -->
     <div class="panel-form">
 
-      <div class="login-card">
-        <h1>Study-IA</h1>
-        <p>Heureux de vous revoir !</p>
-      </div>
-
+      <!-- ── ÉTAPE 1 : numéro de téléphone ──────────────────── -->
       <div id="step-phone">
+        <h1 class="form-title">Connexion</h1>
+        <p class="form-subtitle">
+          Entre ton numéro pour recevoir un code SMS de vérification.
+          Aucun mot de passe requis.
+        </p>
+
         <div class="input-group">
-          <label for="phone-input">Votre numéro de téléphone</label>
+          <label for="phone-input">Numéro de téléphone</label>
           <div class="phone-field">
-            <span class="phone-flag">+237</span>
+            <span class="phone-flag" title="International">🌍</span>
             <input
               type="tel"
               id="phone-input"
-              placeholder="67xxxxxxx"
-              maxlength="9"
+              placeholder="+237 6XX XXX XXX"
               autocomplete="tel"
+              maxlength="18"
             />
           </div>
-          <p class="input-hint">Entrez vos 9 chiffres sans le code pays.</p>
+          <p class="input-hint">Format international requis : +237XXXXXXXXX</p>
         </div>
 
-        <div id="recaptcha-container"></div>
-
+        <!--
+          IMPORTANT : l'ID "send-otp-btn" est utilisé par Firebase
+          pour attacher le reCAPTCHA invisible. Ne pas changer cet ID.
+        -->
         <button id="send-otp-btn" class="btn-primary">
           Recevoir le code par SMS
         </button>
       </div>
 
+      <!-- ── ÉTAPE 2 : saisie du code OTP ───────────────────── -->
       <div id="step-otp">
 
+        <!-- Lien retour -->
         <button class="back-link" id="back-to-phone">
           ← Modifier le numéro
         </button>
@@ -589,6 +595,7 @@
           Saisis-le ci-dessous.
         </p>
 
+        <!-- 6 cases de saisie -->
         <div class="otp-boxes">
           <input class="otp-input" type="text" inputmode="numeric" maxlength="1" placeholder="·" aria-label="Chiffre 1" />
           <input class="otp-input" type="text" inputmode="numeric" maxlength="1" placeholder="·" aria-label="Chiffre 2" />
@@ -598,27 +605,49 @@
           <input class="otp-input" type="text" inputmode="numeric" maxlength="1" placeholder="·" aria-label="Chiffre 6" />
         </div>
 
+        <!-- Compte à rebours d'expiration -->
         <p id="otp-timer">Expire dans 5:00</p>
 
+        <!-- Loader pendant la vérification -->
         <div id="otp-loader">Vérification en cours…</div>
 
+        <!-- Message d'erreur (tentatives incorrectes) -->
         <div id="otp-error" role="alert"></div>
 
+        <!-- Bouton vérifier (fallback) -->
         <button id="verify-otp-btn" class="btn-primary">
           Vérifier le code
         </button>
 
+        <!-- Bouton renvoyer (affiché après expiration ou 3 erreurs) -->
         <button id="resend-btn" class="btn-ghost">
           ↺ Renvoyer le code
         </button>
 
       </div>
-      </div>
+      <!-- fin #step-otp -->
+
     </div>
+    <!-- fin .panel-form -->
+
+  </div>
+  <!-- fin .login-wrapper -->
+
+
+  <!-- ═══ SCRIPTS ═══════════════════════════════════════════ -->
+  <!--
+    main.js est chargé sans type="module" pour exposer
+    window.showToast() globalement.
+  -->
   <script src="js/main.js"></script>
 
+  <!--
+    auth.js utilise des imports ES modules Firebase.
+    type="module" est OBLIGATOIRE ici.
+  -->
   <script type="module" src="js/auth.js"></script>
 
+  <!-- Gestion du lien "retour" sans auth.js (UX simple) -->
   <script>
     document.getElementById("back-to-phone")?.addEventListener("click", () => {
       document.getElementById("step-otp").style.display   = "none";
