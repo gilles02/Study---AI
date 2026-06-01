@@ -1,158 +1,208 @@
-// ============================================
-//  STUDY-IA — auth.js
-//  Registration, login, logout logic
-// ============================================
+// js/auth.js
+import { auth } from "./firebase-config.js";
+import { 
+  RecaptchaVerifier, 
+  signInWithPhoneNumber 
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
-'use strict';
+// ── VARIABLES DE CONTRÔLE D'ÉTAT ─────────────────────────────────────────────
+let confirmationResult = null;
+let currentPhoneNumber = "";
+let loginAttempts = 0;
+let countdownTimer = null;
+const MAX_ATTEMPTS = 3;
+const EXPIRE_MINUTES = 5;
 
-// ── Constants ────────────────────────────────
-const AUTH_KEY  = 'studyia_user';
-const USERS_KEY = 'studyia_users';
+// ── ÉLÉMENTS DU DOM ──────────────────────────────────────────────────────────
+const formStep1 = document.getElementById('auth-step1');
+const formStep2 = document.getElementById('auth-step2');
+const phoneField = document.getElementById('phone-field');
+const errorBoxStep1 = document.getElementById('error-box');
+const errorBoxStep2 = document.getElementById('error-box-step2');
+const otpBoxes = document.querySelectorAll('.otp-box');
+const countdownEl = document.getElementById('countdown');
+const timerTextEl = document.getElementById('timer-text');
+const resendBtn = document.getElementById('resend-btn');
 
-// ── Helpers ──────────────────────────────────
-function getUsers() {
-  return Storage.get(USERS_KEY) || [];
-}
-
-function saveUsers(users) {
-  Storage.set(USERS_KEY, users);
-}
-
-function getCurrentUser() {
-  return Storage.get(AUTH_KEY);
-}
-
-// ── Register ─────────────────────────────────
-/**
- * Register a new user.
- * @param {string} name
- * @param {string} email
- * @param {string} password
- * @returns {{ success: boolean, message: string }}
- */
-function register(name, email, password) {
-  if (!name || !email || !password) {
-    return { success: false, message: 'Tous les champs sont obligatoires.' };
-  }
-
-  if (password.length < 8) {
-    return { success: false, message: 'Le mot de passe doit contenir au moins 8 caractères.' };
-  }
-
-  const users = getUsers();
-  if (users.find((u) => u.email === email)) {
-    return { success: false, message: 'Cette adresse e-mail est déjà utilisée.' };
-  }
-
-  const newUser = {
-    id:        crypto.randomUUID(),
-    name,
-    email,
-    password,   // ⚠️  À hasher côté serveur en production
-    plan:       'free',
-    createdAt:  new Date().toISOString(),
-    credits:    5,
-  };
-
-  users.push(newUser);
-  saveUsers(users);
-  Storage.set(AUTH_KEY, newUser);
-
-  return { success: true, message: 'Compte créé avec succès.', user: newUser };
-}
-
-// ── Login ─────────────────────────────────────
-/**
- * Log in an existing user.
- * @param {string} email
- * @param {string} password
- * @returns {{ success: boolean, message: string }}
- */
-function login(email, password) {
-  if (!email || !password) {
-    return { success: false, message: 'Veuillez renseigner vos identifiants.' };
-  }
-
-  const users = getUsers();
-  const user  = users.find((u) => u.email === email && u.password === password);
-
-  if (!user) {
-    return { success: false, message: 'Email ou mot de passe incorrect.' };
-  }
-
-  Storage.set(AUTH_KEY, user);
-  return { success: true, message: 'Connexion réussie.', user };
-}
-
-// ── Logout ────────────────────────────────────
-function logout() {
-  Storage.remove(AUTH_KEY);
-  window.location.href = 'login.html';
-}
-
-// ── Update user plan ──────────────────────────
-function upgradePlan(plan) {
-  const user  = getCurrentUser();
-  const users = getUsers();
-
-  if (!user) return;
-
-  const idx = users.findIndex((u) => u.id === user.id);
-  if (idx === -1) return;
-
-  users[idx].plan = plan;
-  users[idx].credits = plan === 'pro' ? 999 : plan === 'standard' ? 50 : 5;
-  saveUsers(users);
-  Storage.set(AUTH_KEY, users[idx]);
-}
-
-// ── DOM Bindings ──────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-
-  // ── Registration form ──
-  const regForm = document.getElementById('register-form');
-  if (regForm) {
-    regForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const name     = regForm.name.value.trim();
-      const email    = regForm.email.value.trim();
-      const password = regForm.password.value;
-
-      const result = register(name, email, password);
-      showToast(result.message, result.success ? 'success' : 'error');
-
-      if (result.success) {
-        setTimeout(() => { window.location.href = 'app.html'; }, 800);
+// ── 1. INITIALISATION DU RECAPTCHA INVISIBLE ─────────────────────────────────
+function initInvisibleRecaptcha() {
+  if (!window.recaptchaVerifier) {
+    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+      size: 'invisible',
+      callback: () => {
+        // reCAPTCHA résolu automatiquement
+      },
+      'expired-callback': () => {
+        window.recaptchaVerifier.clear();
+        initInvisibleRecaptcha();
       }
     });
   }
+}
 
-  // ── Login form ──
-  const loginForm = document.getElementById('login-form');
-  if (loginForm) {
-    loginForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const email    = loginForm.email.value.trim();
-      const password = loginForm.password.value;
-
-      const result = login(email, password);
-      showToast(result.message, result.success ? 'success' : 'error');
-
-      if (result.success) {
-        setTimeout(() => { window.location.href = 'app.html'; }, 800);
-      }
-    });
-  }
-
-  // ── Logout buttons ──
-  $$('[data-logout]').forEach((btn) => {
-    btn.addEventListener('click', logout);
+// ── 2. COMPORTEMENT UX DES 6 CASES OTP ───────────────────────────────────────
+otpBoxes.forEach((box, index) => {
+  // Focus sur la première case au chargement de l'étape 2
+  box.addEventListener('input', (e) => {
+    const value = e.target.value;
+    // Forcer uniquement les chiffres
+    e.target.value = value.replace(/[^0-9]/g, '');
+    
+    if (box.value !== "" && index < otpBoxes.length - 1) {
+      otpBoxes[index + 1].focus(); // Passe à la case suivante
+    }
   });
 
-  // ── Show user name ──
-  const userNameEl = document.getElementById('user-name');
-  if (userNameEl) {
-    const user = getCurrentUser();
-    if (user) userNameEl.textContent = user.name;
+  // Gestion du retour arrière (Backspace)
+  box.addEventListener('keydown', (e) => {
+    if (e.key === "Backspace" && box.value === "" && index > 0) {
+      otpBoxes[index - 1].focus(); // Recule d'une case
+    }
+  });
+  
+  // Style dynamique lors du focus
+  box.addEventListener('focus', () => box.style.borderColor = "#1F5C8B");
+  box.addEventListener('blur', () => box.style.borderColor = "#e2e8f0");
+});
+
+// Récupérer le code complet des 6 cases
+function getOtpCode() {
+  let code = "";
+  otpBoxes.forEach(box => code += box.value);
+  return code;
+}
+
+// ── 3. GESTION DU MINUTEUR DE 5 MINUTES ──────────────────────────────────────
+function startTimer() {
+  clearInterval(countdownTimer);
+  let timeRemaining = EXPIRE_MINUTES * 60; // 300 secondes
+  
+  timerTextEl.style.display = "inline";
+  resendBtn.style.display = "none";
+
+  countdownTimer = setInterval(() => {
+    timeRemaining--;
+    
+    const minutes = String(Math.floor(timeRemaining / 60)).padStart(2, '0');
+    const seconds = String(timeRemaining % 60).padStart(2, '0');
+    countdownEl.textContent = `${minutes}:${seconds}`;
+
+    if (timeRemaining <= 0) {
+      clearInterval(countdownTimer);
+      // Code expiré
+      timerTextEl.style.display = "none";
+      resendBtn.style.display = "inline-block";
+      errorBoxStep2.textContent = "Le code a expiré. Veuillez demander un nouveau code.";
+      errorBoxStep2.style.display = "block";
+      otpBoxes.forEach(box => box.disabled = true);
+      document.getElementById('verify-otp-btn').disabled = true;
+    }
+  }, 1000);
+}
+
+// ── 4. SOUCOUP D'ENVOI DU SMS (ÉTAPE 1) ──────────────────────────────────────
+formStep1.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorBoxStep1.style.display = "none";
+  
+  const rawValue = phoneField.value.trim();
+  const cameroonRegex = /^(6|2)\d{8}$/;
+
+  if (!cameroonRegex.test(rawValue)) {
+    errorBoxStep1.textContent = "Format invalide. Saisissez les 9 chiffres (ex: 699xxxxxx).";
+    errorBoxStep1.style.display = "block";
+    return;
+  }
+
+  currentPhoneNumber = "+237" + rawValue;
+  
+  try {
+    initInvisibleRecaptcha();
+    const appVerifier = window.recaptchaVerifier;
+    
+    // Appel Firebase pour l'envoi de l'OTP
+    confirmationResult = await signInWithPhoneNumber(auth, currentPhoneNumber, appVerifier);
+    
+    // Transition d'affichage vers l'Étape 2
+    formStep1.style.display = "none";
+    formStep2.style.display = "block";
+    otpBoxes[0].focus();
+    
+    // Lancement du cycle de vie de l'OTP
+    loginAttempts = 0;
+    startTimer();
+    
+  } catch (error) {
+    console.error("Erreur d'envoi SMS :", error.message);
+    errorBoxStep1.textContent = "Impossible d'envoyer le SMS. Réessayez plus tard.";
+    errorBoxStep1.style.display = "block";
+  }
+});
+
+// ── 5. VALIDATION DU CODE OTP (ÉTAPE 2) ──────────────────────────────────────
+formStep2.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorBoxStep2.style.display = "none";
+  
+  const smsCode = getOtpCode();
+  
+  if (smsCode.length !== 6) {
+    errorBoxStep2.textContent = "Veuillez entrer le code complet à 6 chiffres.";
+    errorBoxStep2.style.display = "block";
+    return;
+  }
+
+  try {
+    // Validation du code auprès de Firebase
+    await confirmationResult.confirm(smsCode);
+    
+    // Succès total -> Nettoyage et redirection
+    clearInterval(countdownTimer);
+    window.location.href = "/app.html";
+    
+  } catch (error) {
+    loginAttempts++;
+    console.warn(`Tentative infructueuse : ${loginAttempts}/${MAX_ATTEMPTS}`);
+    
+    if (loginAttempts >= MAX_ATTEMPTS) {
+      clearInterval(countdownTimer);
+      errorBoxStep2.textContent = "Compte bloqué temporairement suite à 3 codes erronés. Rechargez la page.";
+      errorBoxStep2.style.display = "block";
+      otpBoxes.forEach(box => box.disabled = true);
+      document.getElementById('verify-otp-btn').disabled = true;
+    } else {
+      errorBoxStep2.textContent = `Code incorrect. Il vous reste ${MAX_ATTEMPTS - loginAttempts} essai(s).`;
+      errorBoxStep2.style.display = "block";
+      // Réinitialiser les cases et focus sur la première
+      otpBoxes.forEach(box => box.value = "");
+      otpBoxes[0].focus();
+    }
+  }
+});
+
+// ── 6. LIEN LIÉ AU BOUTON "RENVOYER LE CODE" ─────────────────────────────────
+resendBtn.addEventListener('click', async () => {
+  errorBoxStep2.style.display = "none";
+  
+  try {
+    initInvisibleRecaptcha();
+    const appVerifier = window.recaptchaVerifier;
+    
+    confirmationResult = await signInWithPhoneNumber(auth, currentPhoneNumber, appVerifier);
+    
+    // Réactiver les éléments de saisie
+    otpBoxes.forEach(box => {
+      box.disabled = false;
+      box.value = "";
+    });
+    document.getElementById('verify-otp-btn').disabled = false;
+    otpBoxes[0].focus();
+    
+    // Relancer les compteurs
+    loginAttempts = 0;
+    startTimer();
+  } catch (error) {
+    errorBoxStep2.textContent = "Erreur lors du renvoi du code. Veuillez rafraîchir.";
+    errorBoxStep2.style.display = "block";
   }
 });
