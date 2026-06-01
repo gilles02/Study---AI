@@ -1,251 +1,202 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Study-IA — Connexion / Inscription</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Study-IA - Connexion / Inscription</title>
   <style>
+    /* Design System Global - Mobile First (Optimisé pour 360px) */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }
+
     body {
-      min-height: 100vh;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-    }
-
-    /* ── Left panel ── */
-    .auth-left {
-      background: var(--panel);
-      border-right: 1px solid var(--border);
+      background-color: #ffffff;
+      color: #333333;
       display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      padding: 40px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .auth-left-bg {
-      position: absolute; inset: 0;
-      background:
-        radial-gradient(ellipse 80% 60% at 50% 20%, rgba(232,201,109,0.08) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 80% at 80% 80%, rgba(78,205,196,0.05) 0%, transparent 50%);
-      pointer-events: none;
-    }
-
-    .auth-brand {
-      font-family: var(--font-display);
-      font-size: 1.6rem;
-      font-weight: 900;
-      color: var(--text);
-      position: relative;
-    }
-    .auth-brand span { color: var(--gold); }
-
-    .auth-tagline {
-      position: relative;
-    }
-
-    .auth-tagline h2 {
-      font-size: 2.4rem;
-      line-height: 1.1;
-      margin-bottom: 16px;
-    }
-
-    .auth-tagline p {
-      font-size: 0.95rem;
-      max-width: 340px;
-    }
-
-    .auth-features {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      position: relative;
-    }
-
-    .auth-features li {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 0.88rem;
-      color: var(--text-soft);
-    }
-
-    .auth-features .check {
-      width: 20px; height: 20px;
-      background: rgba(78,205,196,0.15);
-      border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 0.65rem;
-      color: var(--teal);
-      flex-shrink: 0;
-    }
-
-    /* ── Right panel ── */
-    .auth-right {
-      display: flex;
-      align-items: center;
       justify-content: center;
-      padding: 40px;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
     }
 
-    .auth-box {
+    .login-container {
       width: 100%;
-      max-width: 400px;
-    }
-
-    .auth-tabs {
+      max-width: 360px;
       display: flex;
-      gap: 4px;
-      background: var(--ink-soft);
-      border-radius: var(--radius-sm);
-      padding: 4px;
-      margin-bottom: 32px;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
     }
 
-    .tab-btn {
+    .logo-area {
+      margin-bottom: 40px;
+    }
+
+    .logo-area h1 {
+      font-size: 28px;
+      color: #1F5C8B;
+      font-weight: bold;
+    }
+
+    .form-group {
+      width: 100%;
+      margin-bottom: 20px;
+      text-align: left;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 14px;
+      color: #666666;
+      margin-bottom: 8px;
+    }
+
+    /* Champ de saisie avec indicatif +237 fixe */
+    .phone-input-wrapper {
+      display: flex;
+      align-items: center;
+      border: 1px solid #cccccc;
+      border-radius: 6px;
+      padding: 0 12px;
+      background-color: #fafafa;
+      transition: border-color 0.2s;
+    }
+
+    .phone-input-wrapper:focus-within {
+      border-color: #1F5C8B;
+    }
+
+    .country-code {
+      font-size: 16px;
+      color: #333333;
+      font-weight: bold;
+      margin-right: 8px;
+      user-select: none;
+    }
+
+    .phone-input-wrapper input {
       flex: 1;
-      padding: 10px;
-      background: transparent;
       border: none;
-      border-radius: 4px;
-      color: var(--text-muted);
-      font-family: var(--font-body);
-      font-size: 0.88rem;
-      font-weight: 500;
+      background: transparent;
+      padding: 14px 0;
+      font-size: 16px;
+      color: #333333;
+      outline: none;
+    }
+
+    /* Message d'erreur dynamique */
+    .error-message {
+      color: #d9534f;
+      font-size: 13px;
+      margin-top: 6px;
+      display: none;
+    }
+
+    /* Bouton d'action principal */
+    .btn-submit {
+      width: 100%;
+      background-color: #1F5C8B;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      padding: 16px;
+      font-size: 16px;
+      font-weight: bold;
       cursor: pointer;
-      transition: all var(--transition);
+      transition: background-color 0.2s;
     }
 
-    .tab-btn.active {
-      background: var(--panel);
-      color: var(--text);
-      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    .btn-submit:hover {
+      background-color: #164366;
     }
 
-    .auth-panel { display: none; }
-    .auth-panel.active { display: block; }
-
-    .auth-title {
-      font-size: 1.5rem;
-      margin-bottom: 6px;
-    }
-
-    .auth-subtitle {
-      font-size: 0.88rem;
-      color: var(--text-muted);
-      margin-bottom: 28px;
-    }
-
-    @media (max-width: 768px) {
-      body { grid-template-columns: 1fr; }
-      .auth-left { display: none; }
-      .auth-right { padding: 24px 16px; align-items: flex-start; padding-top: 80px; }
+    /* Texte de réassurance */
+    .reassurance-text {
+      margin-top: 24px;
+      font-size: 13px;
+      color: #888888;
+      line-height: 1.5;
     }
   </style>
 </head>
 <body>
 
-  <!-- ── Left branding panel ── -->
-  <div class="auth-left">
-    <div class="auth-left-bg"></div>
-    <a href="index.html" class="auth-brand">Study<span>-IA</span></a>
-
-    <div class="auth-tagline">
-      <h2>Révisez plus<br /><span style="color:var(--gold)">intelligemment</span></h2>
-      <p>Des milliers d'étudiants utilisent déjà Study-IA pour préparer leurs examens.</p>
+  <div class="login-container">
+    
+    <div class="logo-area">
+      <h1>Study-IA</h1>
     </div>
 
-    <ul class="auth-features">
-      <li><span class="check">✓</span> Fiches de révision en 10 secondes</li>
-      <li><span class="check">✓</span> Quiz personnalisés selon votre niveau</li>
-      <li><span class="check">✓</span> Résumés clairs et structurés</li>
-      <li><span class="check">✓</span> 5 générations gratuites pour commencer</li>
-    </ul>
+    <form id="login-form-step1" style="width: 100%;">
+      <div class="form-group">
+        <label for="phone">Numéro de téléphone</label>
+        <div class="phone-input-wrapper">
+          <span class="country-code">+237</span>
+          <input 
+            type="tel" 
+            id="phone" 
+            placeholder="67xxxxxxx" 
+            maxlength="9"
+            autocomplete="tel"
+          >
+        </div>
+        <div id="error-txt" class="error-message"></div>
+      </div>
+
+      <button type="submit" class="btn-submit">Recevoir mon code</button>
+    </form>
+
+    <p class="reassurance-text">
+      Pas de spam. Pas de mot de passe.
+    </p>
+
   </div>
 
-  <!-- ── Right auth panel ── -->
-  <div class="auth-right">
-    <div class="auth-box fade-up">
-
-      <!-- Tabs -->
-      <div class="auth-tabs">
-        <button class="tab-btn active" data-tab="login">Connexion</button>
-        <button class="tab-btn" data-tab="register">Inscription</button>
-      </div>
-
-      <!-- Login -->
-      <div class="auth-panel active" id="panel-login">
-        <h2 class="auth-title">Content de vous revoir</h2>
-        <p class="auth-subtitle">Entrez vos identifiants pour continuer.</p>
-
-        <form id="login-form">
-          <div class="form-group">
-            <label for="login-email">Adresse e-mail</label>
-            <input type="email" id="login-email" name="email" placeholder="vous@exemple.com" required />
-          </div>
-          <div class="form-group">
-            <label for="login-password">Mot de passe</label>
-            <input type="password" id="login-password" name="password" placeholder="••••••••" required />
-          </div>
-          <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">
-            Se connecter
-          </button>
-        </form>
-
-        <div class="divider-text" style="margin-top:24px;font-size:0.8rem">ou</div>
-
-        <p style="text-align:center;margin-top:16px;font-size:0.85rem;color:var(--text-muted)">
-          Pas encore de compte ?
-          <a href="#" class="switch-tab" data-target="register">Créer un compte</a>
-        </p>
-      </div>
-
-      <!-- Register -->
-      <div class="auth-panel" id="panel-register">
-        <h2 class="auth-title">Créer votre compte</h2>
-        <p class="auth-subtitle">Gratuit · Aucune carte requise</p>
-
-        <form id="register-form">
-          <div class="form-group">
-            <label for="reg-name">Nom complet</label>
-            <input type="text" id="reg-name" name="name" placeholder="Jean Dupont" required />
-          </div>
-          <div class="form-group">
-            <label for="reg-email">Adresse e-mail</label>
-            <input type="email" id="reg-email" name="email" placeholder="vous@exemple.com" required />
-          </div>
-          <div class="form-group">
-            <label for="reg-password">Mot de passe</label>
-            <input type="password" id="reg-password" name="password" placeholder="8 caractères minimum" required />
-          </div>
-          <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">
-            Créer mon compte
-          </button>
-        </form>
-
-        <p style="text-align:center;margin-top:16px;font-size:0.85rem;color:var(--text-muted)">
-          Déjà inscrit ?
-          <a href="#" class="switch-tab" data-target="login">Se connecter</a>
-        </p>
-      </div>
-
-    </div>
-  </div>
-
-<script src="js/main.js"></script>
-<script type="module" src="js/auth.js"></script>
   <script>
-    // Tab switching
-    document.querySelectorAll('.tab-btn, .switch-tab').forEach((el) => {
-      el.addEventListener('click', (e) => {
-        e.preventDefault();
-        const target = el.dataset.tab || el.dataset.target;
-        document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === target));
-        document.querySelectorAll('.auth-panel').forEach((p) => p.classList.toggle('active', p.id === `panel-${target}`));
-      });
+    document.getElementById('login-form-step1').addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      const phoneInput = document.getElementById('phone');
+      const errorTxt = document.getElementById('error-txt');
+      const rawValue = phoneInput.value.trim();
+
+      // Regex pour le Cameroun : 9 chiffres au total, commençant obligatoirement par 6 (Mobile) ou 2 (Fixe)
+      const cmPhoneRegex = /^(6|2)\d{8}$/;
+
+      if (rawValue === "") {
+        errorTxt.textContent = "Veuillez saisir votre numéro de téléphone.";
+        errorTxt.style.display = "block";
+        phoneInput.focus();
+        return;
+      }
+
+      if (!cmPhoneRegex.test(rawValue)) {
+        errorTxt.textContent = "Numéro invalide. Entrez les 9 chiffres (ex: 677xxxxxx).";
+        errorTxt.style.display = "block";
+        phoneInput.focus();
+        return;
+      }
+
+      // Si le numéro est valide
+      errorTxt.style.display = "none";
+      
+      // On reconstitue le numéro au format international E.164 pour Firebase
+      const fullPhoneNumber = "+237" + rawValue;
+      console.log("Numéro valide prêt pour Firebase :", fullPhoneNumber);
+
+      // ICI : Tu pourras appeler ta fonction Firebase sendOTP(fullPhoneNumber)
+      alert("Validation réussie ! Code envoyé au " + fullPhoneNumber);
+    });
+
+    // Efface le message d'erreur dès que l'utilisateur recommence à écrire
+    document.getElementById('phone').addEventListener('input', function() {
+      document.getElementById('error-txt').style.display = "none";
     });
   </script>
+
 </body>
 </html>
