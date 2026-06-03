@@ -327,12 +327,11 @@ function formaterTelephone(numero) {
   // Supprime espaces, tirets, points, parenthèses
   let propre = numero.replace(/[\s\-().]/g, "");
 
-  // Conversion numéro français local → international
-  // "0612345678" (10 chiffres commençant par 0) → "+33612345678"
-  if (propre.startsWith("0") && propre.length === 10) {
-    propre = "+33" + propre.slice(1);
-    // slice(1) = on enlève le "0" du début
-  }
+ // Cameroun : numéros locaux à 9 chiffres commençant par 6 ou 2
+// Ex: 677123456 → +237677123456
+if (!propre.startsWith("+") && propre.length === 9) {
+  propre = "+237" + propre;
+}
 
   // Vérification finale : doit commencer par + suivi de 8 à 15 chiffres
   if (!/^\+\d{8,15}$/.test(propre)) return ""; // invalide → chaîne vide
