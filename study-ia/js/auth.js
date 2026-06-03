@@ -580,14 +580,20 @@ async function deconnecter() {
  */
 function requireAuth() {
   return new Promise((resolve) => {
-    // onAuthStateChanged est appelé une fois dès que Firebase sait
-    // si l'utilisateur est connecté ou non (vérifie le token en localStorage).
+    // on attend que Firebase soit prêt avant de décider
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      unsubscribe(); // on arrête d'écouter après le premier appel
+      unsubscribe();
       if (!user) {
-        window.location.href = "/login.html"; // pas connecté → login
+        // petite sécurité : on attend 1 seconde avant de rediriger
+        // au cas où Firebase est juste lent à restaurer la session
+        setTimeout(() => {
+          // on vérifie une deuxième fois après le délai
+          const u = auth.currentUser;
+          if (!u) window.location.href = "/login.html";
+          else resolve(u);
+        }, 1000);
       } else {
-        resolve(user); // connecté → on retourne l'objet user
+        resolve(user);
       }
     });
   });
