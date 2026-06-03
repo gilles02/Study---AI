@@ -1,542 +1,666 @@
-// ═══════════════════════════════════════════════════════════════
-//  js/auth.js — Firebase Phone Authentication pour Study-IA
-//  Flow : Numéro → OTP SMS (6 cases) → Session → /app.html
-// ═══════════════════════════════════════════════════════════════
+// ============================================================
+//  STUDY-IA — auth.js
+//  Firebase Phone Authentication — version commentée
+// ============================================================
 
-import { auth, db }                        from "./firebase-config.js";
+// ── Les imports Firebase ─────────────────────────────────────
+// On importe uniquement ce dont on a besoin depuis Firebase.
+// "auth" vient de notre fichier firebase-config.js (déjà initialisé).
+import { auth } from "./firebase-config.js";
 import {
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  onAuthStateChanged,
-  signOut
+  RecaptchaVerifier,       // Protection anti-spam de Google (invisible pour l'user)
+  signInWithPhoneNumber,   // Envoie le SMS
+  onAuthStateChanged,      // Écoute si l'utilisateur est connecté ou non
+  signOut                  // Déconnecte l'utilisateur
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import {
-  doc,
-  setDoc,
-  getDoc,
-  serverTimestamp
-} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 
-// ─────────────────────────────────────────────
-//  CONSTANTES
-// ─────────────────────────────────────────────
-const MAX_ATTEMPTS    = 3;   // tentatives max avant blocage
-const OTP_EXPIRY_MS   = 5 * 60 * 1000;  // 5 minutes en millisecondes
+// ════════════════════════════════════════════════════════════
+//  VARIABLES GLOBALES
+//  Ces 4 variables sont partagées entre toutes les fonctions.
+//  Elles doivent rester accessibles en dehors des fonctions
+//  car plusieurs fonctions différentes les lisent ou les modifient.
+// ════════════════════════════════════════════════════════════
 
-// ─────────────────────────────────────────────
-//  ÉTAT GLOBAL (module-scoped)
-// ─────────────────────────────────────────────
-let confirmationResult = null;  // résultat retourné par Firebase après envoi SMS
-let wrongAttempts      = 0;     // compteur de codes faux
-let otpSentAt          = null;  // timestamp d'envoi de l'OTP
-let expiryTimer        = null;  // setInterval pour le compte à rebours
+// Stocke la réponse de Firebase après l'envoi du SMS.
+// On en a besoin plus tard pour valider le code.
+// null = pas encore de SMS envoyé.
+let confirmationResult = null;
+
+// Compte combien de fois l'utilisateur a entré un mauvais code.
+// Quand il atteint 3, on bloque tout.
+let tentatives = 0;
+
+// Référence au setInterval du compte à rebours.
+// On la stocke ici pour pouvoir l'arrêter avec clearInterval() plus tard.
+let timerExpiration = null;
+
+// Heure exacte où le SMS a été envoyé (en millisecondes).
+// Utilisé pour calculer le temps restant avant expiration.
+let tempsEnvoi = null;
+
+// Durées fixes
+const MAX_TENTATIVES = 3;
+const EXPIRATION_MS  = 5 * 60 * 1000; // 5 minutes = 300 000 ms
 
 
-// ═══════════════════════════════════════════════════════════════
-//  1. INITIALISATION reCAPTCHA (INVISIBLE)
-//     À appeler une seule fois quand la page de login est chargée
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+//  SECTION 1 — FONCTIONS D'AFFICHAGE
+//  Ces fonctions modifient uniquement ce que l'utilisateur voit.
+//  Elles ne touchent pas à Firebase.
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Affiche un message coloré sous le formulaire.
+ *
+ * Le div #auth-message existe dans le HTML mais est caché (display:none).
+ * Cette fonction lui donne un style et un texte, puis l'affiche.
+ *
+ * @param {string} message - Le texte à afficher
+ * @param {string} couleur - "rouge" (erreur) | "orange" (avertissement) | "vert" (succès)
+ */
+function afficherMessage(message, couleur = "rouge") {
+  const el = document.getElementById("auth-message");
+  if (!el) return; // sécurité : si l'élément n'existe pas, on ne plante pas
+
+  // Chaque couleur a son propre style
+  const styles = {
+    rouge:  { bg: "rgba(224,92,92,0.12)",   bordure: "#e05c5c", texte: "#e05c5c" },
+    orange: { bg: "rgba(232,180,109,0.12)", bordure: "#e8b46d", texte: "#e8b46d" },
+    vert:   { bg: "rgba(78,205,196,0.12)",  bordure: "#4ecdc4", texte: "#4ecdc4" },
+  };
+  const s = styles[couleur] || styles.rouge;
+
+  el.style.cssText = `
+    display: block;
+    background: ${s.bg};
+    border: 1px solid ${s.bordure};
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+    color: ${s.texte};
+    margin-top: 14px;
+  `;
+  el.textContent = message;
+}
+
+/** Cache le message (utile avant chaque nouvelle action) */
+function cacherMessage() {
+  const el = document.getElementById("auth-message");
+  if (el) el.style.display = "none";
+}
+
+/**
+ * Passe visuellement de l'étape 1 à l'étape 2.
+ *
+ * Dans le HTML il y a deux blocs :
+ *   #etape-telephone (étape 1, visible au départ)
+ *   #etape-otp       (étape 2, caché au départ)
+ * Cette fonction cache le premier et montre le second.
+ *
+ * @param {string} telephone - Le numéro formaté (+33612345678)
+ */
+function afficherEtapeOTP(telephone) {
+  document.getElementById("etape-telephone").style.display = "none";
+  document.getElementById("etape-otp").style.display       = "block";
+
+  // Affiche "Code envoyé au ••••••••78" (on masque tout sauf les 2 derniers chiffres)
+  const visible = telephone.slice(-2);
+  const el = document.getElementById("numero-masque");
+  if (el) el.textContent = `Code envoyé au ••••••••${visible}`;
+
+  // Met le curseur dans la première case automatiquement
+  setTimeout(() => {
+    const premiere = document.querySelector(".otp-input");
+    if (premiere) premiere.focus();
+  }, 100);
+
+  cacherMessage();
+}
+
+/**
+ * Démarre le compte à rebours de 5 minutes.
+ *
+ * Toutes les secondes, on calcule le temps restant et on l'affiche
+ * dans #compte-rebours. Quand il atteint 0, on bloque les cases.
+ */
+function demarrerCompteARebours() {
+  const el = document.getElementById("compte-rebours");
+  if (!el) return;
+
+  // Si un timer tournait déjà (cas d'un renvoi), on l'arrête d'abord
+  if (timerExpiration) clearInterval(timerExpiration);
+
+  // On note l'heure de l'envoi
+  tempsEnvoi = Date.now();
+
+  timerExpiration = setInterval(() => {
+    const ecoule  = Date.now() - tempsEnvoi; // temps passé depuis l'envoi
+    const restant = EXPIRATION_MS - ecoule;  // temps restant
+
+    if (restant <= 0) {
+      // Temps écoulé : on arrête le timer et on bloque tout
+      clearInterval(timerExpiration);
+      el.textContent = "Code expiré";
+      afficherMessage("⏱ Ton code a expiré. Clique sur 'Renvoyer le code'.", "orange");
+      afficherBoutonRenvoyer(true);
+      bloquerCasesOTP(true);
+      return;
+    }
+
+    // Convertit les millisecondes en "M:SS"
+    const minutes  = Math.floor(restant / 60000);
+    const secondes = Math.floor((restant % 60000) / 1000);
+    el.textContent = `Expire dans ${minutes}:${secondes.toString().padStart(2, "0")}`;
+    // padStart(2, "0") : affiche "09" au lieu de "9"
+  }, 1000); // s'exécute toutes les 1000ms = 1 seconde
+}
+
+/**
+ * Affiche ou cache le bouton "Renvoyer le code".
+ * @param {boolean} visible - true = on montre, false = on cache
+ */
+function afficherBoutonRenvoyer(visible) {
+  const btn = document.getElementById("btn-renvoyer");
+  if (btn) btn.style.display = visible ? "block" : "none";
+}
+
+/**
+ * Rend les 6 cases et le bouton Vérifier actifs ou inactifs.
+ * Appelé quand le code expire ou quand les 3 tentatives sont épuisées.
+ * @param {boolean} bloquer - true = grise et désactive, false = réactive
+ */
+function bloquerCasesOTP(bloquer) {
+  document.querySelectorAll(".otp-input").forEach((input) => {
+    input.disabled      = bloquer;
+    input.style.opacity = bloquer ? "0.4" : "1";
+  });
+  const btn = document.getElementById("btn-valider-otp");
+  if (btn) btn.disabled = bloquer;
+}
+
+/** Vide les 6 cases et remet le focus sur la première (après un mauvais code) */
+function reinitialiserCasesOTP() {
+  document.querySelectorAll(".otp-input").forEach((c) => { c.value = ""; });
+  const premiere = document.querySelector(".otp-input");
+  if (premiere) premiere.focus();
+}
+
+/**
+ * Lit les 6 cases et les colle en une seule chaîne.
+ * Ex : cases avec "4", "8", "2", "9", "1", "6" → "482916"
+ * @returns {string}
+ */
+function lireCodeOTP() {
+  return [...document.querySelectorAll(".otp-input")]
+    .map((input) => input.value.trim())
+    .join("");
+}
+
+/**
+ * Met un bouton en état "chargement" (spinner + texte) ou le restaure.
+ * @param {HTMLButtonElement} btn
+ * @param {boolean} enChargement
+ * @param {string} texteOriginal - Texte à remettre quand c'est fini
+ */
+function setChargement(btn, enChargement, texteOriginal = "") {
+  if (!btn) return;
+  btn.disabled = enChargement;
+  if (enChargement) {
+    btn.innerHTML = `
+      <span style="display:inline-flex;align-items:center;gap:8px">
+        <span style="width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);
+          border-top-color:#fff;border-radius:50%;
+          animation:spin 0.7s linear infinite;display:inline-block">
+        </span>
+        Chargement…
+      </span>`;
+  } else {
+    btn.innerHTML = texteOriginal;
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  SECTION 2 — NAVIGATION ENTRE LES 6 CASES
+//  Quand l'utilisateur tape un chiffre → passage automatique à la case suivante.
+//  Quand il appuie sur Backspace → retour à la case précédente.
+//  Quand il colle un code complet → répartition automatique.
+// ════════════════════════════════════════════════════════════
+
+function initNavigationOTP() {
+  const cases = document.querySelectorAll(".otp-input");
+  // "cases" est un tableau des 6 inputs, dans l'ordre du HTML.
+  // cases[0] = 1ère case, cases[1] = 2ème, etc.
+
+  cases.forEach((input, index) => {
+    // index = position de la case (0 à 5)
+
+    // ── Événement : l'utilisateur tape un chiffre ──
+    input.addEventListener("input", (e) => {
+      // On ne garde que les chiffres (supprime lettres, espaces, etc.)
+      const valeur = e.target.value.replace(/\D/g, "");
+      // On ne garde que le dernier caractère (au cas où 2 chiffres arrivent)
+      e.target.value = valeur.slice(-1);
+
+      // Si un chiffre a été saisi ET qu'on n'est pas sur la dernière case
+      if (valeur && index < cases.length - 1) {
+        cases[index + 1].focus(); // on passe à la case suivante
+      }
+
+      // Si les 6 cases sont remplies → on valide automatiquement
+      if (lireCodeOTP().length === 6) {
+        setTimeout(() => validerCode(), 200);
+        // setTimeout de 200ms : laisse le temps à la dernière case d'afficher le chiffre
+      }
+    });
+
+    // ── Événement : l'utilisateur appuie sur Backspace ──
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Backspace" && !input.value && index > 0) {
+        // Si la case est déjà vide et qu'on appuie sur Backspace
+        // → on revient à la case précédente
+        cases[index - 1].focus();
+      }
+    });
+
+    // ── Événement : l'utilisateur colle un texte (Ctrl+V) ──
+    input.addEventListener("paste", (e) => {
+      e.preventDefault(); // empêche le comportement par défaut
+
+      // Récupère le texte collé et ne garde que les chiffres, max 6
+      const colle = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+
+      // Répartit les chiffres dans chaque case
+      cases.forEach((c, i) => { c.value = colle[i] || ""; });
+
+      if (colle.length === 6) {
+        // Code complet collé → validation automatique
+        setTimeout(() => validerCode(), 200);
+      } else {
+        // Code partiel → focus sur la première case vide
+        cases[Math.min(colle.length, cases.length - 1)].focus();
+      }
+    });
+  });
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  SECTION 3 — FIREBASE : ENVOI DU SMS
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Initialise le reCAPTCHA invisible de Firebase.
+ *
+ * Firebase utilise reCAPTCHA pour vérifier que c'est un humain
+ * qui demande le SMS (protection anti-spam).
+ * "invisible" = l'utilisateur ne voit rien, c'est automatique.
+ *
+ * IMPORTANT : doit être appelé UNE SEULE FOIS au chargement.
+ * Si on l'appelle plusieurs fois, Firebase plante.
+ * (Exception : après un renvoi de code, on doit le réinitialiser.)
+ */
 function initRecaptcha() {
-  // Si déjà initialisé, on ne le refait pas
-  if (window.recaptchaVerifier) return;
-
   window.recaptchaVerifier = new RecaptchaVerifier(
     auth,
-    "send-otp-btn",   // ID du bouton d'envoi dans login.html
+    "btn-envoyer-otp", // Firebase attache le reCAPTCHA sur ce bouton
     {
-      size: "invisible",  // invisible = pas de widget visible, juste une vérification silencieuse
-      callback: () => {
-        // reCAPTCHA validé automatiquement → on peut envoyer le SMS
-      },
+      size: "invisible", // invisible = pas de case à cocher
+      callback: () => {}, // appelé quand reCAPTCHA est résolu (automatique)
       "expired-callback": () => {
-        // Le token reCAPTCHA a expiré (après ~2 min d'inactivité)
-        window.recaptchaVerifier.clear();
-        window.recaptchaVerifier = null;
-        initRecaptcha(); // on le réinitialise
-        showToast("Session reCAPTCHA expirée. Réessaie.", "warning");
+        // Si l'utilisateur reste trop longtemps sans rien faire (~2min)
+        afficherMessage("Session expirée. Recharge la page.", "orange");
       },
     }
   );
 }
 
+/**
+ * Formate le numéro en format E.164, exigé par Firebase.
+ * Firebase n'accepte PAS "06 12 34 56 78" — il faut "+33612345678".
+ *
+ * @param {string} numero - Ce que l'utilisateur a tapé
+ * @returns {string} - "+33612345678" ou "" si invalide
+ */
+function formaterTelephone(numero) {
+  // Supprime espaces, tirets, points, parenthèses
+  let propre = numero.replace(/[\s\-().]/g, "");
 
-// ═══════════════════════════════════════════════════════════════
-//  2. ENVOI DE L'OTP PAR SMS
-// ═══════════════════════════════════════════════════════════════
-async function sendOTP() {
-  const phoneInput = document.getElementById("phone-input");
-  if (!phoneInput) return;
+  // Conversion numéro français local → international
+  // "0612345678" (10 chiffres commençant par 0) → "+33612345678"
+  if (propre.startsWith("0") && propre.length === 10) {
+    propre = "+33" + propre.slice(1);
+    // slice(1) = on enlève le "0" du début
+  }
 
-  const rawPhone = phoneInput.value.trim();
+  // Vérification finale : doit commencer par + suivi de 8 à 15 chiffres
+  if (!/^\+\d{8,15}$/.test(propre)) return ""; // invalide → chaîne vide
 
-  // ── Validation basique du format ──────────────────────────────
-  // Le numéro doit être au format international E.164 : +237XXXXXXXXX
-  const phoneRegex = /^\+[1-9]\d{7,14}$/;
-  if (!phoneRegex.test(rawPhone)) {
-    showToast("Numéro invalide. Utilise le format international : +237XXXXXXXXX", "error");
+  return propre;
+}
+
+/**
+ * Envoie le SMS OTP.
+ * Appelée quand l'utilisateur clique "Recevoir mon code".
+ */
+async function envoyerOTP() {
+  cacherMessage();
+
+  const input = document.getElementById("phone-input");
+  const btn   = document.getElementById("btn-envoyer-otp");
+
+  const telephone = formaterTelephone(input.value);
+
+  // Validation avant d'appeler Firebase
+  if (!telephone) {
+    afficherMessage("Numéro invalide. Format attendu : 06 12 34 56 78");
     return;
   }
 
-  // ── Désactiver le bouton pendant l'envoi ──────────────────────
-  const btn = document.getElementById("send-otp-btn");
-  if (btn) {
-    btn.disabled    = true;
-    btn.textContent = "Envoi en cours…";
-  }
+  setChargement(btn, true);
 
   try {
-    // Initialise reCAPTCHA si pas encore fait
-    initRecaptcha();
-
-    // Appel Firebase : envoie le SMS et retourne un objet confirmationResult
+    // signInWithPhoneNumber fait 2 choses :
+    // 1. Contacte les serveurs Google
+    // 2. Envoie un SMS au numéro
+    // En retour, on reçoit un "confirmationResult" qu'on stocke
+    // pour pouvoir valider le code à l'étape suivante.
     confirmationResult = await signInWithPhoneNumber(
       auth,
-      rawPhone,
-      window.recaptchaVerifier
+      telephone,
+      window.recaptchaVerifier // la protection anti-spam
     );
 
-    // Mémoriser l'heure d'envoi pour gérer l'expiration
-    otpSentAt     = Date.now();
-    wrongAttempts = 0; // reset le compteur
+    tentatives = 0; // remet le compteur à zéro pour ce nouvel envoi
+    afficherEtapeOTP(telephone); // passe à l'étape 2
+    demarrerCompteARebours();    // démarre le timer 5 minutes
+    afficherBoutonRenvoyer(false); // le bouton "Renvoyer" reste caché pour l'instant
 
-    // Passer à l'étape 2 (afficher les 6 cases OTP)
-    showOTPStep(rawPhone);
-    startExpiryCountdown();
-    showToast("Code envoyé par SMS !", "success");
+  } catch (erreur) {
+    // Firebase retourne un code d'erreur précis dans erreur.code
+    const messages = {
+      "auth/invalid-phone-number": "Numéro de téléphone invalide.",
+      "auth/too-many-requests":    "Trop de tentatives. Réessaie dans quelques minutes.",
+      "auth/captcha-check-failed": "Vérification anti-spam échouée. Recharge la page.",
+    };
+    // Si le code d'erreur n'est pas dans notre liste, on affiche le message brut de Firebase
+    afficherMessage(messages[erreur.code] || `Erreur : ${erreur.message}`);
 
-  } catch (err) {
-    console.error("Erreur sendOTP :", err);
-
-    // Réinitialiser reCAPTCHA en cas d'erreur (obligatoire sinon Firebase bloque)
+    // Après une erreur, le reCAPTCHA doit être réinitialisé
+    // sinon le prochain essai plantera aussi
     if (window.recaptchaVerifier) {
       window.recaptchaVerifier.clear();
-      window.recaptchaVerifier = null;
+      initRecaptcha();
     }
 
-    if (btn) {
-      btn.disabled    = false;
-      btn.textContent = "Recevoir le code";
-    }
-
-    // Messages d'erreur lisibles selon le code Firebase
-    const messages = {
-      "auth/invalid-phone-number"  : "Numéro de téléphone invalide.",
-      "auth/too-many-requests"     : "Trop de tentatives. Réessaie dans quelques minutes.",
-      "auth/quota-exceeded"        : "Quota SMS dépassé. Contacte le support.",
-      "auth/captcha-check-failed"  : "Vérification reCAPTCHA échouée. Réessaie.",
-    };
-    const msg = messages[err.code] || "Erreur lors de l'envoi du SMS. Réessaie.";
-    showToast(msg, "error");
+  } finally {
+    // "finally" s'exécute TOUJOURS, que ça ait réussi ou échoué
+    // → on enlève l'état "chargement" du bouton dans tous les cas
+    setChargement(btn, false, "Recevoir mon code →");
   }
 }
 
 
-// ═══════════════════════════════════════════════════════════════
-//  3. AFFICHER L'ÉTAPE OTP (6 cases de saisie)
-// ═══════════════════════════════════════════════════════════════
-function showOTPStep(phoneNumber) {
-  const stepPhone = document.getElementById("step-phone");
-  const stepOTP   = document.getElementById("step-otp");
+// ════════════════════════════════════════════════════════════
+//  SECTION 4 — FIREBASE : VALIDATION DU CODE
+// ════════════════════════════════════════════════════════════
 
-  // Cacher l'étape 1 (saisie du numéro)
-  if (stepPhone) stepPhone.style.display = "none";
+/**
+ * Vérifie le code saisi dans les 6 cases auprès de Firebase.
+ *
+ * Appelée automatiquement quand les 6 cases sont remplies,
+ * ou manuellement via le bouton "Vérifier →".
+ */
+async function validerCode() {
+  const code = lireCodeOTP(); // ex: "482916"
 
-  // Afficher l'étape 2 (saisie du code)
-  if (stepOTP) {
-    stepOTP.style.display = "block";
-
-    // Afficher le numéro masqué dans le message de confirmation
-    const phoneDisplay = document.getElementById("phone-display");
-    if (phoneDisplay) {
-      // Masquer une partie du numéro : +237 6XX XX XX 89 → +237 6•• •• •• 89
-      const masked = phoneNumber.slice(0, 5) + "•••••" + phoneNumber.slice(-2);
-      phoneDisplay.textContent = masked;
-    }
-
-    // Focus automatique sur la première case
-    const firstInput = document.querySelector(".otp-input");
-    if (firstInput) firstInput.focus();
-  }
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-//  4. NAVIGATION ENTRE LES 6 CASES OTP (clavier)
-// ═══════════════════════════════════════════════════════════════
-function setupOTPInputs() {
-  const inputs = document.querySelectorAll(".otp-input");
-  if (!inputs.length) return;
-
-  inputs.forEach((input, index) => {
-    // ── Saisie d'un chiffre → passer à la case suivante ─────────
-    input.addEventListener("input", (e) => {
-      // Garder seulement le dernier caractère saisi (cas collé-clavier)
-      const val = e.target.value.replace(/\D/g, "").slice(-1);
-      e.target.value = val;
-
-      if (val && index < inputs.length - 1) {
-        inputs[index + 1].focus();
-      }
-
-      // Si toutes les cases sont remplies → soumettre automatiquement
-      const code = getOTPCode();
-      if (code.length === 6) {
-        verifyOTP(code);
-      }
-    });
-
-    // ── Retour arrière → effacer et revenir à la case précédente ─
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Backspace" && !e.target.value && index > 0) {
-        inputs[index - 1].focus();
-        inputs[index - 1].value = "";
-      }
-    });
-
-    // ── Coller un code 6 chiffres (ex : depuis les notifications) ─
-    input.addEventListener("paste", (e) => {
-      e.preventDefault();
-      const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-      if (pasted.length === 6) {
-        // Remplir toutes les cases
-        inputs.forEach((inp, i) => {
-          inp.value = pasted[i] || "";
-        });
-        inputs[5].focus();
-        verifyOTP(pasted);
-      }
-    });
-  });
-}
-
-// Récupère le code OTP assemblé depuis les 6 cases
-function getOTPCode() {
-  const inputs = document.querySelectorAll(".otp-input");
-  return Array.from(inputs).map(i => i.value).join("");
-}
-
-// Vide toutes les cases OTP
-function clearOTPInputs() {
-  const inputs = document.querySelectorAll(".otp-input");
-  inputs.forEach(i => (i.value = ""));
-  if (inputs[0]) inputs[0].focus();
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-//  5. VÉRIFICATION DU CODE OTP
-// ═══════════════════════════════════════════════════════════════
-async function verifyOTP(code) {
-  // ── Vérifier que le code n'est pas expiré ─────────────────────
-  if (otpSentAt && Date.now() - otpSentAt > OTP_EXPIRY_MS) {
-    showOTPError("Code expiré. Clique sur « Renvoyer le code ».");
-    showResendButton();
+  // Vérifications préliminaires avant d'appeler Firebase
+  if (code.length !== 6) {
+    afficherMessage("Entre les 6 chiffres du code reçu.");
     return;
   }
-
-  // ── Vérifier qu'on n'a pas dépassé les tentatives max ────────
-  if (wrongAttempts >= MAX_ATTEMPTS) {
-    showOTPError("Trop de tentatives. Clique sur « Renvoyer le code ».");
-    showResendButton();
-    blockOTPInputs();
-    return;
-  }
-
   if (!confirmationResult) {
-    showToast("Session expirée. Recharge la page.", "error");
+    // Ne devrait pas arriver normalement, mais sécurité au cas où
+    afficherMessage("Erreur : pas de code envoyé. Recommence depuis le début.");
     return;
   }
 
-  // ── Désactiver les cases pendant la vérification ──────────────
-  blockOTPInputs(true);
-  showLoadingOTP(true);
+  const btn = document.getElementById("btn-valider-otp");
+  setChargement(btn, true);
+  cacherMessage();
 
   try {
-    // Firebase vérifie le code OTP
-    const result = await confirmationResult.confirm(code);
-    const user   = result.user; // objet utilisateur Firebase connecté
+    // confirm() envoie le code à Firebase pour vérification.
+    // Si le code est correct, Firebase crée automatiquement la session
+    // et retourne un objet "credential" qui contient l'utilisateur.
+    const credential = await confirmationResult.confirm(code);
+    const user = credential.user; // l'objet utilisateur Firebase
 
-    // ── Créer/mettre à jour le profil dans Firestore ──────────
-    await saveUserToFirestore(user);
+    // Succès !
+    clearInterval(timerExpiration); // arrête le compte à rebours
+    afficherMessage("✓ Connexion réussie ! Redirection…", "vert");
 
-    // ── Nettoyer le timer ─────────────────────────────────────
-    if (expiryTimer) clearInterval(expiryTimer);
+    // On sauvegarde l'UID Firebase en local pour un accès rapide
+    // (Firebase gère lui-même la session, c'est juste pratique)
+    localStorage.setItem("studyia_uid",   user.uid);
+    localStorage.setItem("studyia_phone", user.phoneNumber);
 
-    showToast("Connexion réussie ! Redirection…", "success");
+    // On attend 800ms pour que l'utilisateur voie le message vert,
+    // puis on redirige vers l'application
+    setTimeout(() => { window.location.href = "/app.html"; }, 800);
 
-    // ── Rediriger vers /app.html après un court délai ─────────
-    setTimeout(() => {
-      window.location.href = "/app.html";
-    }, 1200);
+  } catch (erreur) {
+    // Le code était faux ou expiré
+    tentatives++; // on incrémente le compteur d'essais
+    reinitialiserCasesOTP(); // on vide les cases pour qu'il retape
 
-  } catch (err) {
-    console.error("Erreur verifyOTP :", err);
+    if (erreur.code === "auth/code-expired") {
+      // Firebase dit lui-même que le code a expiré
+      clearInterval(timerExpiration);
+      afficherMessage("⏱ Code expiré. Demande un nouveau code.", "orange");
+      afficherBoutonRenvoyer(true);
+      bloquerCasesOTP(true);
 
-    wrongAttempts++;
-    const remaining = MAX_ATTEMPTS - wrongAttempts;
+    } else if (tentatives >= MAX_TENTATIVES) {
+      // 3 mauvaises tentatives → on bloque tout
+      clearInterval(timerExpiration);
+      afficherMessage('❌ Code incorrect 3 fois. Clique sur "Renvoyer le code".');
+      afficherBoutonRenvoyer(true);
+      bloquerCasesOTP(true);
 
-    blockOTPInputs(false); // réactiver les cases
-    showLoadingOTP(false);
-    clearOTPInputs();
-
-    if (err.code === "auth/invalid-verification-code") {
-      if (remaining > 0) {
-        showOTPError(`Code incorrect. Il te reste ${remaining} tentative${remaining > 1 ? "s" : ""}.`);
-      } else {
-        // Plus de tentatives disponibles
-        showOTPError("Trop de tentatives. Clique sur « Renvoyer le code ».");
-        showResendButton();
-        blockOTPInputs(true);
-      }
-    } else if (err.code === "auth/code-expired") {
-      showOTPError("Code expiré. Clique sur « Renvoyer le code ».");
-      showResendButton();
     } else {
-      showOTPError("Erreur de vérification. Réessaie.");
+      // Il reste des essais → on informe combien
+      const restantes = MAX_TENTATIVES - tentatives;
+      afficherMessage(
+        `Code incorrect. Il te reste ${restantes} tentative${restantes > 1 ? "s" : ""}.`
+      );
+      // On remet le bouton en état normal (pas en chargement)
+      setChargement(btn, false, "Vérifier →");
+    }
+
+  } finally {
+    // Si la page est encore là (pas encore redirigée), on enlève le chargement
+    if (document.getElementById("btn-valider-otp")) {
+      setChargement(btn, false, "Vérifier →");
     }
   }
 }
 
 
-// ═══════════════════════════════════════════════════════════════
-//  6. SAUVEGARDER L'UTILISATEUR DANS FIRESTORE
-// ═══════════════════════════════════════════════════════════════
-async function saveUserToFirestore(user) {
-  const userRef = doc(db, "users", user.uid);
-  const snap    = await getDoc(userRef);
+// ════════════════════════════════════════════════════════════
+//  SECTION 5 — RENVOYER LE CODE
+// ════════════════════════════════════════════════════════════
 
-  if (!snap.exists()) {
-    // Nouveau compte : créer le document
-    await setDoc(userRef, {
-      uid          : user.uid,
-      phone        : user.phoneNumber,
-      createdAt    : serverTimestamp(),
-      plan         : "free",       // plan par défaut
-      credits      : 10,           // crédits offerts à l'inscription
-      generationCount: 0,
-    });
-  } else {
-    // Compte existant : mettre à jour la date de dernière connexion
-    await setDoc(userRef, { lastLoginAt: serverTimestamp() }, { merge: true });
+/**
+ * Envoie un nouveau SMS avec un nouveau code.
+ * Appelée quand l'utilisateur clique "↺ Renvoyer le code".
+ *
+ * On réutilise le même numéro (déjà dans #phone-input).
+ * On réinitialise tout : timer, tentatives, cases.
+ */
+async function renvoyerCode() {
+  const input     = document.getElementById("phone-input");
+  const telephone = formaterTelephone(input?.value || "");
+
+  if (!telephone) {
+    // Si on n'a plus le numéro, on renvoie l'utilisateur à l'étape 1
+    document.getElementById("etape-otp").style.display       = "none";
+    document.getElementById("etape-telephone").style.display = "block";
+    return;
   }
-}
 
+  const btn = document.getElementById("btn-renvoyer");
+  setChargement(btn, true);
+  cacherMessage();
 
-// ═══════════════════════════════════════════════════════════════
-//  7. COMPTE À REBOURS D'EXPIRATION (5 minutes)
-// ═══════════════════════════════════════════════════════════════
-function startExpiryCountdown() {
-  if (expiryTimer) clearInterval(expiryTimer);
-
-  const timerEl = document.getElementById("otp-timer");
-
-  expiryTimer = setInterval(() => {
-    const elapsed   = Date.now() - otpSentAt;
-    const remaining = OTP_EXPIRY_MS - elapsed;
-
-    if (remaining <= 0) {
-      clearInterval(expiryTimer);
-      if (timerEl) timerEl.textContent = "Code expiré";
-      showOTPError("Ton code a expiré après 5 minutes.");
-      showResendButton();
-      blockOTPInputs(true);
-      return;
-    }
-
-    // Afficher MM:SS
-    const mins = Math.floor(remaining / 60000);
-    const secs = Math.floor((remaining % 60000) / 1000);
-    if (timerEl) {
-      timerEl.textContent = `Expire dans ${mins}:${secs.toString().padStart(2, "0")}`;
-    }
-  }, 1000);
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-//  8. RENVOI DU CODE (bouton "Renvoyer le code")
-// ═══════════════════════════════════════════════════════════════
-async function resendOTP() {
-  const resendBtn = document.getElementById("resend-btn");
-  if (resendBtn) resendBtn.style.display = "none";
-
-  // Réinitialiser l'état
-  wrongAttempts = 0;
-  clearOTPInputs();
-  blockOTPInputs(false);
-  hideOTPError();
-
-  // Réinitialiser reCAPTCHA (obligatoire pour un second envoi)
+  // Le reCAPTCHA doit être réinitialisé entre deux envois SMS
+  // sinon Firebase retourne une erreur "reCAPTCHA already used"
   if (window.recaptchaVerifier) {
     window.recaptchaVerifier.clear();
-    window.recaptchaVerifier = null;
+    initRecaptcha();
   }
 
-  // Récupérer le numéro depuis l'affichage ou l'input
-  // On remet l'étape 1 visible pour que l'utilisateur confirme son numéro
-  const stepPhone = document.getElementById("step-phone");
-  const stepOTP   = document.getElementById("step-otp");
-  if (stepPhone) stepPhone.style.display = "block";
-  if (stepOTP)   stepOTP.style.display   = "none";
+  try {
+    confirmationResult = await signInWithPhoneNumber(
+      auth, telephone, window.recaptchaVerifier
+    );
 
-  // Réactiver le bouton d'envoi
-  const sendBtn = document.getElementById("send-otp-btn");
-  if (sendBtn) {
-    sendBtn.disabled    = false;
-    sendBtn.textContent = "Recevoir le code";
+    // Remet tout à zéro pour ce nouvel envoi
+    tentatives = 0;
+    reinitialiserCasesOTP();     // vide les 6 cases
+    bloquerCasesOTP(false);      // réactive les cases (elles étaient grisées)
+    demarrerCompteARebours();    // nouveau timer de 5 minutes
+    afficherBoutonRenvoyer(false); // recache le bouton "Renvoyer"
+    afficherMessage("✓ Nouveau code envoyé !", "vert");
+
+  } catch (erreur) {
+    const messages = {
+      "auth/too-many-requests": "Trop de tentatives. Attends quelques minutes.",
+    };
+    afficherMessage(messages[erreur.code] || `Erreur : ${erreur.message}`);
+  } finally {
+    setChargement(btn, false, "↺ Renvoyer le code");
   }
-
-  if (expiryTimer) clearInterval(expiryTimer);
-  showToast("Saisis à nouveau ton numéro pour renvoyer le code.", "info");
 }
 
 
-// ═══════════════════════════════════════════════════════════════
-//  9. HELPERS UI
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+//  SECTION 6 — DÉCONNEXION
+// ════════════════════════════════════════════════════════════
 
-// Bloquer ou débloquer les cases OTP
-function blockOTPInputs(block = true) {
-  const inputs = document.querySelectorAll(".otp-input");
-  inputs.forEach(i => {
-    i.disabled = block;
-    if (block) i.classList.add("disabled");
-    else       i.classList.remove("disabled");
+/**
+ * Déconnecte l'utilisateur de Firebase et le renvoie sur /login.html.
+ * Appelée par tous les boutons avec l'attribut data-logout.
+ */
+async function deconnecter() {
+  await signOut(auth);
+  // signOut() efface la session Firebase côté navigateur
+  localStorage.removeItem("studyia_uid");
+  localStorage.removeItem("studyia_phone");
+  window.location.href = "/login.html";
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  SECTION 7 — PROTECTION DES PAGES
+//  À utiliser sur app.html, dashboard.html :
+//  si l'utilisateur n'est pas connecté, redirection vers login.
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Vérifie si l'utilisateur est connecté.
+ * Si oui → retourne l'objet user Firebase (utile pour afficher le numéro).
+ * Si non → redirige vers /login.html automatiquement.
+ *
+ * Usage sur une page protégée :
+ *   const user = await requireAuth();
+ *   console.log(user.phoneNumber); // "+33612345678"
+ *
+ * @returns {Promise<User>}
+ */
+function requireAuth() {
+  return new Promise((resolve) => {
+    // onAuthStateChanged est appelé une fois dès que Firebase sait
+    // si l'utilisateur est connecté ou non (vérifie le token en localStorage).
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      unsubscribe(); // on arrête d'écouter après le premier appel
+      if (!user) {
+        window.location.href = "/login.html"; // pas connecté → login
+      } else {
+        resolve(user); // connecté → on retourne l'objet user
+      }
+    });
   });
 }
 
-// Afficher / cacher le loader pendant la vérification
-function showLoadingOTP(show) {
-  const loader  = document.getElementById("otp-loader");
-  const verBtn  = document.getElementById("verify-otp-btn");
-  if (loader) loader.style.display = show ? "block" : "none";
-  if (verBtn) verBtn.style.display = show ? "none" : "block";
-}
 
-// Afficher le message d'erreur sous les cases
-function showOTPError(msg) {
-  const errEl = document.getElementById("otp-error");
-  if (errEl) {
-    errEl.textContent   = msg;
-    errEl.style.display = "block";
-    // Petite animation de secousse
-    errEl.classList.remove("shake");
-    void errEl.offsetWidth; // reflow pour relancer l'animation
-    errEl.classList.add("shake");
-  }
-}
+// ════════════════════════════════════════════════════════════
+//  SECTION 8 — BRANCHEMENT DOM
+//  Cette partie s'exécute une fois que toute la page est chargée.
+//  Elle relie les boutons HTML aux fonctions JS définies au-dessus.
+// ════════════════════════════════════════════════════════════
 
-function hideOTPError() {
-  const errEl = document.getElementById("otp-error");
-  if (errEl) errEl.style.display = "none";
-}
-
-// Afficher le bouton "Renvoyer le code"
-function showResendButton() {
-  const resendBtn = document.getElementById("resend-btn");
-  if (resendBtn) resendBtn.style.display = "inline-block";
-  // Cacher le timer
-  const timerEl = document.getElementById("otp-timer");
-  if (timerEl) timerEl.style.display = "none";
-}
-
-// Toast de notification (utilise la fonction définie dans main.js)
-function showToast(message, type = "info") {
-  if (typeof window.showToast === "function") {
-    window.showToast(message, type);
-  } else {
-    // Fallback si main.js n'est pas chargé
-    console.log(`[${type.toUpperCase()}] ${message}`);
-    alert(message);
-  }
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-//  10. ÉTAT DE CONNEXION (persistance sur toutes les pages)
-// ═══════════════════════════════════════════════════════════════
-onAuthStateChanged(auth, (user) => {
-  if (user) {
-    // ── Utilisateur connecté ──────────────────────────────────
-    // Mettre à jour l'UI si des éléments de profil existent dans la page
-    const userPhoneEl = document.getElementById("user-phone");
-    if (userPhoneEl) userPhoneEl.textContent = user.phoneNumber;
-
-    // Si on est sur login.html alors qu'on est déjà connecté → rediriger
-    if (window.location.pathname.includes("login")) {
-      window.location.href = "/app.html";
-    }
-
-  } else {
-    // ── Utilisateur non connecté ──────────────────────────────
-    // Si on est sur une page protégée → rediriger vers login
-    const protectedPages = ["/app.html", "/dashboard.html", "/payment.html"];
-    const currentPath    = window.location.pathname;
-    if (protectedPages.some(p => currentPath.includes(p))) {
-      window.location.href = "/login.html";
-    }
-  }
-});
-
-
-// ═══════════════════════════════════════════════════════════════
-//  11. DÉCONNEXION
-// ═══════════════════════════════════════════════════════════════
-async function logout() {
-  try {
-    await signOut(auth);
-    window.location.href = "/login.html";
-  } catch (err) {
-    console.error("Erreur logout :", err);
-    showToast("Erreur lors de la déconnexion.", "error");
-  }
-}
-
-
-// ═══════════════════════════════════════════════════════════════
-//  12. INITIALISATION AU CHARGEMENT DE LA PAGE
-// ═══════════════════════════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", () => {
 
-  // ── Bouton "Recevoir le code" ─────────────────────────────────
-  const sendBtn = document.getElementById("send-otp-btn");
-  if (sendBtn) {
-    initRecaptcha(); // préparer reCAPTCHA dès le chargement
-    sendBtn.addEventListener("click", sendOTP);
-  }
+  // On récupère les éléments clés. Si un élément n'existe pas sur cette page,
+  // la variable vaut null et les if() en dessous ne font rien → pas d'erreur.
+  const btnEnvoyer  = document.getElementById("btn-envoyer-otp");
+  const btnValider  = document.getElementById("btn-valider-otp");
+  const btnRenvoyer = document.getElementById("btn-renvoyer");
+  const btnChanger  = document.getElementById("btn-changer-numero");
 
-  // ── Bouton "Vérifier le code" (fallback si l'utilisateur ne saisit pas les 6 cases) ─
-  const verifyBtn = document.getElementById("verify-otp-btn");
-  if (verifyBtn) {
-    verifyBtn.addEventListener("click", () => {
-      const code = getOTPCode();
-      if (code.length < 6) {
-        showOTPError("Entre les 6 chiffres du code reçu.");
-        return;
-      }
-      verifyOTP(code);
+  // ── Page login.html ──────────────────────────────────────
+  if (btnEnvoyer) {
+    initRecaptcha(); // initialise le reCAPTCHA UNE SEULE FOIS ici
+
+    // Clic sur "Recevoir mon code →"
+    btnEnvoyer.addEventListener("click", envoyerOTP);
+
+    // Appuyer sur Entrée dans le champ téléphone = même effet que cliquer
+    document.getElementById("phone-input")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") envoyerOTP();
     });
   }
 
-  // ── Bouton "Renvoyer le code" ─────────────────────────────────
-  const resendBtn = document.getElementById("resend-btn");
-  if (resendBtn) {
-    resendBtn.addEventListener("click", resendOTP);
+  if (btnValider) {
+    initNavigationOTP(); // active la navigation entre les 6 cases
+    btnValider.addEventListener("click", validerCode);
   }
 
-  // ── Bouton "Déconnexion" (présent sur app.html / dashboard.html) ─
-  const logoutBtn = document.getElementById("logout-btn");
-  if (logoutBtn) {
-    logoutBtn.addEventListener("click", logout);
+  if (btnRenvoyer) {
+    btnRenvoyer.addEventListener("click", renvoyerCode);
   }
 
-  // ── Configurer la navigation entre les 6 cases OTP ───────────
-  setupOTPInputs();
+  if (btnChanger) {
+    // "← Changer de numéro" → retour à l'étape 1 sans recharger la page
+    btnChanger.addEventListener("click", () => {
+      clearInterval(timerExpiration); // arrête le timer
+      document.getElementById("etape-otp").style.display       = "none";
+      document.getElementById("etape-telephone").style.display = "block";
+      cacherMessage();
+    });
+  }
+
+  // ── Pages protégées (app.html, dashboard.html) ───────────
+  // Si la balise <body> a l'attribut data-protected (ex: <body data-protected>)
+  // → on vérifie que l'utilisateur est bien connecté
+  if (document.body.dataset.protected !== undefined) {
+    requireAuth().then((user) => {
+      // Optionnel : afficher le numéro de l'utilisateur dans la nav
+      const phoneEl = document.getElementById("user-phone");
+      if (phoneEl) phoneEl.textContent = user.phoneNumber;
+    });
+  }
+
+  // ── Boutons de déconnexion (toutes les pages) ────────────
+  // Tous les éléments avec data-logout appellent deconnecter()
+  document.querySelectorAll("[data-logout]").forEach((btn) => {
+    btn.addEventListener("click", deconnecter);
+  });
+
 });
 
-
-// ─────────────────────────────────────────────
-//  EXPORTS (pour les autres modules si besoin)
-// ─────────────────────────────────────────────
-export { auth, logout };
+// ── Export pour les autres fichiers JS ───────────────────────
+// generator.js et payment.js peuvent importer requireAuth si besoin
+export { requireAuth, deconnecter };
